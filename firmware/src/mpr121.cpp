@@ -134,12 +134,8 @@ bool Mpr121Hardware::applyConfig(const config::Config& value) {
     writeChecked(0x5E, 0);
     for (uint8_t channel = 0; channel < 12; ++channel) {
       uint16_t delta = config::touchDelta(value, board, 0);
-      for (uint8_t key = 0; key < touchmap::KeyCount; ++key) {
-        if (touchmap::Keys[key].board == board && touchmap::Keys[key].channel == channel) {
-          delta = config::touchDelta(value, board, value.electrodeOffsets[key]);
-          break;
-        }
-      }
+      const int8_t key = config::keyForChannel(value, board, channel);
+      if (key >= 0) delta = config::touchDelta(value, board, value.electrodeOffsets[key]);
       const uint16_t release = config::releaseDelta(delta, mpr121_validation::SoftwareHysteresis);
       uint8_t hardwareDelta = 0;
       uint8_t hardwareRelease = 0;

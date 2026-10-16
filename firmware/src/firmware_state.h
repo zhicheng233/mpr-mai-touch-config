@@ -10,7 +10,7 @@ namespace firmware_state {
 enum class Mode : uint8_t { Game = 0, ConfigIdle = 1, Streaming = 2, Calibrating = 3 };
 enum class SequenceDecision : uint8_t { Execute, Replay, Conflict };
 
-constexpr uint32_t VersionCapabilities = 0x0FUL;
+constexpr uint32_t VersionCapabilities = 0x1FUL;
 constexpr uint16_t DebugPayloadLength = 207;
 
 uint8_t statusForRequest(Mode mode, uint8_t requestType);

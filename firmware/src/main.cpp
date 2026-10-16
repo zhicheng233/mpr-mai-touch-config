@@ -210,7 +210,7 @@ void handleFrame(const protocol::Frame& frame) {
   if (!prepareRequest(frame)) return;
   if (mode != FirmwareMode::GAME) lastConfigActivity = currentTime;
   if (frame.type == protocol::TypeVersion && frame.length == 0) {
-    uint8_t result[16] = {1, 0, 0, 1, 0, 0x0F, 0, 0, 0, 0, 1, 48, 34, 4,
+    uint8_t result[16] = {1, 1, 0, 1, 0, 0x1F, 0, 0, 0, 0, 1, 48, 34, 4,
                           static_cast<uint8_t>(mode), 0};
     sendAck(frame.type, frame.sequence, result, sizeof(result));
     return;
@@ -251,7 +251,7 @@ void handleFrame(const protocol::Frame& frame) {
   }
   if (mode == FirmwareMode::STREAMING || mode == FirmwareMode::CALIBRATING) {
     if (frame.type == protocol::TypeVersion) {
-      uint8_t result[16] = {1, 0, 0, 1, 0, 0x0F, 0, 0, 0, 0, 1, 48, 34, 4,
+      uint8_t result[16] = {1, 1, 0, 1, 0, 0x1F, 0, 0, 0, 0, 1, 48, 34, 4,
                             static_cast<uint8_t>(mode), 0};
       sendAck(frame.type, frame.sequence, result, sizeof(result));
       return;
@@ -381,7 +381,7 @@ void loopGame() {
   if (conditioning) return;
   uint16_t touched[touchmap::BoardCount] = {};
   for (uint8_t board = 0; board < touchmap::BoardCount; ++board) touched[board] = mpr.touched(board);
-  touchState.applyHardware(touched);
+  touchState.applyHardware(applied, touched);
   uint8_t output[protocol::LegacyFrameLength];
   protocol::encodeLegacyGameFrame(touchState.keys(), output);
   Serial.write(output, sizeof(output));
@@ -396,7 +396,7 @@ void sendDebugFrame(uint32_t nowMs) {
   uint16_t touched[touchmap::BoardCount] = {};
   for (uint8_t board = 0; board < touchmap::BoardCount; ++board) touched[board] = mpr.touched(board);
   mpr.snapshot(filtered, baseline, status);
-  touchState.applyHardware(touched);
+  touchState.applyHardware(applied, touched);
   firmware_state::encodeDebugPayload(nowMs, touchState.keys(), filtered, baseline, status,
                                      mpr.i2cErrors(), payload, sizeof(payload));
   sendFrame(protocol::TypeDebugFrame, 0, payload, sizeof(payload));

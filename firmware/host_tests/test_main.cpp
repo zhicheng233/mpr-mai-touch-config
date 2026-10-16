@@ -447,8 +447,9 @@ int main() {
   }
   assert(protocol::isKnownRequestType(protocol::TypeApplyConfig));
   assert(!protocol::isKnownRequestType(0x7E));
-  assert(protocol::validPayloadLength(protocol::TypeSetConfig, 59));
-  assert(!protocol::validPayloadLength(protocol::TypeSetConfig, 58));
+  assert(protocol::validPayloadLength(protocol::TypeSetConfig, config::BlobLength));
+  assert(!protocol::validPayloadLength(protocol::TypeSetConfig,
+                                       config::BlobLength - 1));
 
   checkCalibration();
   checkProtocolBoundaries();
@@ -460,15 +461,61 @@ int main() {
   config::Config value = config::defaults();
   uint8_t blob[config::BlobLength] = {};
   assert(config::serialize(value, blob, sizeof(blob)));
-  assert(sizeof(blob) == 59 && blob[0] == config::Schema);
+  assert(sizeof(blob) == 93 && blob[0] == config::Schema);
   config::Config roundTrip = {};
   assert(config::deserialize(blob, sizeof(blob), &roundTrip));
   assert(roundTrip.boards[0].baseThreshold == 20);
-  blob[0] = 2;
+  for (uint8_t key = 0; key < touchmap::KeyCount; ++key) {
+    assert(roundTrip.keyMap[key] == touchmap::DefaultKeyMap[key]);
+  }
+  blob[0] = 3;
   assert(!config::deserialize(blob, sizeof(blob), &roundTrip));
   blob[0] = config::Schema;
   blob[1 + 1] = 0x80;
   assert(!config::deserialize(blob, sizeof(blob), &roundTrip));
+
+  // keyMap 校验：非法 board/channel 与重复映射都必须被拒绝。
+  config::Config mapping = config::defaults();
+  assert(config::validate(mapping));
+  mapping = config::defaults();
+  mapping.keyMap[0] = touchmap::PackMapping(4, 0);
+  assert(!config::validate(mapping));
+  mapping = config::defaults();
+  mapping.keyMap[0] = touchmap::PackMapping(0, 12);
+  assert(!config::validate(mapping));
+  mapping = config::defaults();
+  mapping.keyMap[0] = mapping.keyMap[1];
+  assert(!config::validate(mapping));
+
+  // 通道 ↔ 按键 反向查找与默认焊接顺序一致。
+  config::Config defaults = config::defaults();
+  assert(config::keyForChannel(defaults, 0, 0) == 7);
+  assert(config::keyForChannel(defaults, 3, 4) == 0);
+  assert(config::keyForChannel(defaults, 0, 9) == -1);
+  assert(config::electrodeOffsetForChannel(defaults, 0, 9) == 0);
+  assert(config::electrodeOffsetForChannel(defaults, 0, 0) ==
+         defaults.electrodeOffsets[7]);
+
+  // 重映射：把 A1（key 0）改到 board 0/channel 8，阈值方向随新通道走。
+  config::Config remapped = config::defaults();
+  remapped.keyMap[0] = touchmap::PackMapping(0, 8);
+  remapped.electrodeOffsets[0] = -8;
+  assert(config::validate(remapped));
+  assert(config::electrodeOffsetForChannel(remapped, 0, 8) == -8);
+  assert(config::keyForChannel(remapped, 0, 8) == 0);
+  assert(firmware_state::thresholdForChannel(remapped, 0, 8) ==
+         static_cast<uint16_t>(20 - 8));
+  {
+    const uint16_t remappedTouched[touchmap::BoardCount] = {1u << 8, 0, 0, 0};
+    TouchState state;
+    state.reset();
+    state.applyHardware(remapped, remappedTouched);
+    assert(state.keys()[0]);
+    assert(!state.keys()[1]);
+    // 同一触摸位在默认映射下不再是 A1（默认 A1 在 board3/channel4）。
+    state.applyHardware(defaults, remappedTouched);
+    assert(!state.keys()[0]);
+  }
 
   uint8_t hardwareThreshold = 0;
   assert(mpr121_validation::toHardwareThreshold(1, &hardwareThreshold) &&
@@ -527,17 +574,29 @@ int main() {
   assert(persisted && generation == 1 && loaded.boards[0].baseThreshold == 20);
   assert(activeSlot == 0);
   assert(eeprom_store::RecordLength + 2 <= eeprom_store::SlotSize);
-  assert(eeprom_store::ReservedStart == 71);
+  assert(eeprom_store::ReservedStart == 105);
   assert(memory.bytes[eeprom_store::SlotSize - 1] == 0xFF);
 
   assert(eeprom_store::save(memory, value, 2, 1));
   assert(eeprom_store::load(memory, &loaded, &generation, &persisted, &activeSlot));
   assert(persisted && generation == 2 && activeSlot == 1);
 
-  memory.bytes[69] ^= 1;
-  memory.bytes[eeprom_store::SlotSize + 69] ^= 1;
+  memory.bytes[eeprom_store::RecordLength] ^= 1;
+  memory.bytes[eeprom_store::SlotSize + eeprom_store::RecordLength] ^= 1;
   assert(eeprom_store::load(memory, &loaded, &generation, &persisted));
   assert(!persisted && generation == 0);
+
+  // keyMap 变体必须能完整存入 EEPROM 并读回（记录长度 103，双槽仍可容纳）。
+  config::Config stored = config::defaults();
+  stored.keyMap[0] = touchmap::PackMapping(2, 11);
+  stored.keyMap[1] = touchmap::PackMapping(3, 4);
+  assert(config::validate(stored));
+  MemoryEeprom variant;
+  assert(eeprom_store::save(variant, stored, 1, 0));
+  config::Config variantLoaded = {};
+  assert(eeprom_store::load(variant, &variantLoaded, &generation, &persisted, &activeSlot));
+  assert(persisted && variantLoaded.keyMap[0] == stored.keyMap[0] &&
+         variantLoaded.keyMap[1] == stored.keyMap[1]);
 
   checkAllLegacyVectors();
   const uint8_t empty[] = {0, 0, 0, 0, 0, 0, 0};

@@ -8,25 +8,28 @@ void TouchState::reset() {
   }
 }
 
-void TouchState::applyHardware(const uint16_t touched[touchmap::BoardCount]) {
+void TouchState::applyHardware(const config::Config& value,
+                               const uint16_t touched[touchmap::BoardCount]) {
   for (uint8_t key = 0; key < touchmap::KeyCount; ++key) {
-    const touchmap::KeyMapping& mapping = touchmap::Keys[key];
-    keys_[key] = (touched[mapping.board] >> mapping.channel) & 1;
+    const uint8_t board = touchmap::UnpackBoard(value.keyMap[key]);
+    const uint8_t channel = touchmap::UnpackChannel(value.keyMap[key]);
+    keys_[key] = (touched[board] >> channel) & 1;
   }
 }
 
 void TouchState::update(const Mpr121Hardware& hardware, const config::Config& value) {
   for (uint8_t key = 0; key < touchmap::KeyCount; ++key) {
-    const touchmap::KeyMapping& mapping = touchmap::Keys[key];
-    const uint16_t baseline = hardware.baseline(mapping.board, mapping.channel);
-    const uint16_t filtered = hardware.filtered(mapping.board, mapping.channel);
-    const uint16_t delta = config::touchDelta(value, mapping.board, value.electrodeOffsets[key]);
+    const uint8_t mappingBoard = touchmap::UnpackBoard(value.keyMap[key]);
+    const uint8_t mappingChannel = touchmap::UnpackChannel(value.keyMap[key]);
+    const uint16_t baseline = hardware.baseline(mappingBoard, mappingChannel);
+    const uint16_t filtered = hardware.filtered(mappingBoard, mappingChannel);
+    const uint16_t delta = config::touchDelta(value, mappingBoard, value.electrodeOffsets[key]);
     const uint16_t release = config::releaseDelta(delta, mpr121_validation::SoftwareHysteresis);
     const uint16_t drop = baseline > filtered ? static_cast<uint16_t>(baseline - filtered) : 0;
     const bool pressed = drop >= delta;
     const bool released = drop <= release;
-    const uint8_t pressNeeded = static_cast<uint8_t>(value.boards[mapping.board].touchDebounce + 1);
-    const uint8_t releaseNeeded = static_cast<uint8_t>(value.boards[mapping.board].releaseDebounce + 1);
+    const uint8_t pressNeeded = static_cast<uint8_t>(value.boards[mappingBoard].touchDebounce + 1);
+    const uint8_t releaseNeeded = static_cast<uint8_t>(value.boards[mappingBoard].releaseDebounce + 1);
 
     if (!keys_[key]) {
       releaseCounts_[key] = 0;

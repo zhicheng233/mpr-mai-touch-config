@@ -8,7 +8,7 @@ namespace eeprom_store {
 
 constexpr uint16_t SlotSize = 128;
 constexpr uint16_t SlotCount = 2;
-constexpr uint16_t RecordLength = 69;
+constexpr uint16_t RecordLength = 103;
 constexpr uint16_t SlotDataEnd = RecordLength + 2;
 constexpr uint16_t ReservedStart = SlotDataEnd;
 constexpr uint16_t Magic = 0x4D41;

@@ -23,17 +23,22 @@ void writeLe32(uint8_t* output, uint32_t value) {
   output[3] = static_cast<uint8_t>(value >> 24);
 }
 
+}  // namespace
+
+namespace eeprom_store {
+
+namespace {
+
+// CRC 覆盖 magic..blob（跳过 commit marker 字节 3），不含尾部的 CRC 本身。
 uint16_t recordCrc(const uint8_t* record) {
-  uint8_t crcInput[69] = {};
+  uint8_t crcInput[RecordLength] = {};
   uint16_t index = 0;
   for (uint16_t i = 0; i <= 2; ++i) crcInput[index++] = record[i];
-  for (uint16_t i = 4; i < 69; ++i) crcInput[index++] = record[i];
+  for (uint16_t i = 4; i < RecordLength; ++i) crcInput[index++] = record[i];
   return protocol::crc16Ccitt(crcInput, index);
 }
 
 }  // namespace
-
-namespace eeprom_store {
 
 bool serializeRecord(const config::Config& value, uint32_t generation,
                      uint8_t* output, uint16_t outputCapacity) {
@@ -46,7 +51,7 @@ bool serializeRecord(const config::Config& value, uint32_t generation,
   output[3] = 0;
   writeLe16(output + 4, RecordLength);
   writeLe32(output + 6, generation);
-  writeLe16(output + 69, recordCrc(output));
+  writeLe16(output + RecordLength, recordCrc(output));
   return true;
 }
 
@@ -59,8 +64,8 @@ bool validateRecord(const uint8_t* record, uint16_t recordLength,
       record[2] != StorageSchema || record[3] != CommitMarker ||
       (static_cast<uint16_t>(record[4]) |
        (static_cast<uint16_t>(record[5]) << 8)) != RecordLength ||
-      (static_cast<uint16_t>(record[69]) |
-       (static_cast<uint16_t>(record[70]) << 8)) != recordCrc(record)) {
+      (static_cast<uint16_t>(record[RecordLength]) |
+       (static_cast<uint16_t>(record[RecordLength + 1]) << 8)) != recordCrc(record)) {
     return false;
   }
   if (!config::deserialize(record + 10, config::BlobLength, output)) return false;

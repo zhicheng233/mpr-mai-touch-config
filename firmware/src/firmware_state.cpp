@@ -21,18 +21,13 @@ uint8_t statusForRequest(Mode mode, uint8_t requestType) {
 
 int8_t electrodeOffsetForChannel(const config::Config& value, uint8_t board,
                                  uint8_t channel) {
-  for (uint8_t key = 0; key < touchmap::KeyCount; ++key) {
-    if (touchmap::Keys[key].board == board && touchmap::Keys[key].channel == channel) {
-      return value.electrodeOffsets[key];
-    }
-  }
-  return 0;
+  return config::electrodeOffsetForChannel(value, board, channel);
 }
 
 uint16_t thresholdForChannel(const config::Config& value, uint8_t board,
                              uint8_t channel) {
-  return config::touchDelta(value, board,
-                             electrodeOffsetForChannel(value, board, channel));
+  return config::touchDelta(
+      value, board, config::electrodeOffsetForChannel(value, board, channel));
 }
 
 SequenceDecision classifySequence(bool cacheValid, uint16_t sequence, uint8_t type,
