@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>maimai 触摸板布局微调工具</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #14181d; color: #dfe6ee;
+    font: 13px/1.5 "Segoe UI", "Microsoft YaHei", system-ui, sans-serif; overflow: hidden; }
+  #app { display: flex; height: 100vh; }
+
+  /* ---------- 左侧控制面板 ---------- */
+  #panel { width: 350px; flex: 0 0 350px; background: #1b2026; border-right: 1px solid #2d353d;
+    overflow-y: auto; padding: 12px 14px 40px; }
+  #panel h1 { font-size: 15px; margin: 0 0 4px; }
+  #panel .sub { color: #8b96a1; font-size: 11px; margin-bottom: 12px; }
+  .section { border: 1px solid #2d353d; border-radius: 8px; margin-bottom: 10px; background: #191e24; }
+  .section > summary { cursor: pointer; padding: 8px 10px; font-weight: 600; list-style: none;
+    display: flex; justify-content: space-between; align-items: center; }
+  .section > summary::-webkit-details-marker { display: none; }
+  .section > summary .chev { color: #6c7986; font-size: 11px; }
+  .section[open] > summary { border-bottom: 1px solid #2d353d; }
+  .section .body { padding: 10px; }
+  .row { display: grid; grid-template-columns: 80px 1fr 62px; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .row label { color: #a9b4bf; font-size: 12px; }
+  input[type=range] { width: 100%; accent-color: #d65a3a; }
+  input[type=number], input[type=text] { background: #0f1317; border: 1px solid #333c45; color: #dfe6ee;
+    border-radius: 5px; padding: 4px 6px; width: 100%; font: inherit; }
+  input[type=number]:focus, input[type=text]:focus { outline: 1px solid #d65a3a; }
+  .btnrow { display: flex; gap: 6px; flex-wrap: wrap; }
+  button { background: #2a323b; color: #dfe6ee; border: 1px solid #3a444e; border-radius: 6px;
+    padding: 6px 10px; cursor: pointer; font: inherit; }
+  button:hover { background: #333d47; }
+  button.primary { background: #d65a3a; border-color: #d65a3a; color: #fff; }
+  button.primary:hover { background: #e06a4a; }
+  textarea { width: 100%; height: 130px; background: #0f1317; border: 1px solid #333c45; color: #b6c2cd;
+    border-radius: 6px; padding: 6px; font: 11px/1.4 Consolas, monospace; resize: vertical; }
+  .hint { color: #7d8893; font-size: 11px; margin: 6px 0; }
+  kbd { background:#0f1317; border:1px solid #3a444e; border-radius:4px; padding:0 4px; font:11px monospace; }
+
+  /* ---------- 按键列表 ---------- */
+  #keyList { max-height: 240px; overflow-y: auto; border: 1px solid #2d353d; border-radius: 6px; padding: 4px; background:#0f1317; }
+  .krow { display: flex; align-items: center; gap: 6px; padding: 2px 4px; border-radius: 4px; cursor: pointer; }
+  .krow:hover { background: #1e252c; }
+  .krow.sel { background: #3a2a1c; outline: 1px solid #f0a000; }
+  .krow input[type=checkbox] { accent-color: #d65a3a; }
+  .krow .kl { flex: 1; font-size: 12px; }
+  .krow .kx { color: #6c7986; font-size: 10px; font-family: Consolas, monospace; }
+  .listtools { display:flex; gap:6px; margin-bottom:6px; }
+
+  /* ---------- 右侧画板（视图可缩放/平移） ---------- */
+  #stage { flex: 1; position: relative; overflow: hidden; background: #0e1216; }
+  #boardWrap { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+  #board { position: relative; width: 960px; height: 912px; background: #090b0d;
+    box-shadow: 0 0 0 1px #2d353d; overflow: hidden; }
+  #board.grid { background-image:
+      linear-gradient(rgba(120,140,160,.08) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(120,140,160,.08) 1px, transparent 1px);
+    background-size: 45px 45px; }
+  /* 拖动时：未选中的键降低透明度 */
+  #board.dragging .key:not(.sel) { opacity: .18; }
+  /* 参考背景：最底层，默认不可拖动（可切换） */
+  #bgImage { position: absolute; left: 0; top: 0; z-index: 0; pointer-events: none;
+    user-select: none; display: none; -webkit-user-drag: none; }
+  #bgImage.movable { pointer-events: auto; cursor: move; outline: 1px dashed #4a90d9; }
+  .cross { position: absolute; background: rgba(214,90,58,.5); pointer-events: none; z-index: 5; }
+  .cross.v { left: 480px; top: 0; width: 1px; height: 912px; }
+  .cross.h { top: 456px; left: 0; height: 1px; width: 960px; }
+  .key { position: absolute; cursor: grab; user-select: none; z-index: 10; }
+  .key.dragging { cursor: grabbing; z-index: 40; }
+  .key img { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  .key .tag { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%);
+    color: #fff; font-size: 11px; font-weight: 600; text-shadow: 0 0 3px #000; pointer-events: none; white-space: nowrap; }
+  .key.sel { outline: 2px solid #f0a000; outline-offset: 0; z-index: 30; }
+  .key.sel .tag { color: #ffe08a; }
+  .key.hidden-key { opacity: .12; outline: 1px dashed #66707a; }
+  #zoomInfo { position: absolute; left: 10px; bottom: 10px; color: #6c7986; font-size: 11px; }
+  #toast { position: fixed; right: 16px; bottom: 16px; background: #2a323b; border: 1px solid #3a444e;
+    border-radius: 6px; padding: 8px 12px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 100; }
+  #toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<div id="app">
+  <aside id="panel">
+    <h1>maimai 触摸板布局微调</h1>
+    <div class="sub">点键选中（Shift/Ctrl 加选，空白处拖拽框选，点空白取消）；拖动移动；方向键微调；改完导出 JSON / C# 发我。</div>
+
+    <details class="section" open>
+      <summary>全局操作 <span class="chev">▾</span></summary>
+      <div class="body">
+        <div class="btnrow">
+          <button class="primary" id="btnRegenAll">从参数重排全部</button>
+          <button id="btnFit">适配窗口</button>
+          <button id="btnGrid">网格</button>
+        </div>
+        <div class="hint">「从参数重排」= 用各环 scale/radius 重算所有键（会覆盖手动拖动与覆盖）。</div>
+      </div>
+    </details>
+
+    <div id="ringControls"></div>
+
+    <details class="section" open>
+      <summary>按键列表（显隐 / 选择） <span class="chev">▾</span></summary>
+      <div class="body">
+        <div class="listtools">
+          <button id="btnShowAll">全显示</button>
+          <button id="btnHideSel">隐藏选中</button>
+          <button id="btnShowSel">显示选中</button>
+        </div>
+        <div id="keyList"></div>
+      </div>
+    </details>
+
+    <details class="section" open>
+      <summary>选择 / 批量操作 <span class="chev">▾</span></summary>
+      <div class="body">
+        <div class="hint">已选中：<span id="selCount" style="color:#f0a000;font-weight:600">0</span> 个键</div>
+        <div class="row"><label>步进(px)</label><input type="number" id="step" value="10" min="1" step="1"><span></span></div>
+        <div class="hint">选中后按方向键微调；按住 Shift 方向键 = 10× 步进。</div>
+        <div class="btnrow">
+          <button data-nudge="left">←</button><button data-nudge="right">→</button>
+          <button data-nudge="up">↑</button><button data-nudge="down">↓</button>
+        </div>
+        <div class="row" style="margin-top:10px"><label>统一缩放</label><input type="number" id="batchScale" value="1" step="0.05" min="0.05"><span></span></div>
+        <div class="btnrow">
+          <button id="btnBatchScale">按倍率缩放选中</button>
+          <button id="btnResetSel">重置选中到参数位置</button>
+        </div>
+      </div>
+    </details>
+
+    <details class="section">
+      <summary>精确编辑（单个键） <span class="chev">▾</span></summary>
+      <div class="body">
+        <div class="hint">选中单个键时可用。当前：<span id="selName" style="color:#f0a000;font-weight:600">（未选中）</span></div>
+        <div class="row"><label>X（左上）</label><input type="number" id="selX"><span></span></div>
+        <div class="row"><label>Y（左上）</label><input type="number" id="selY"><span></span></div>
+        <div class="row"><label>宽</label><input type="number" id="selW"><span></span></div>
+        <div class="row"><label>高</label><input type="number" id="selH"><span></span></div>
+        <div class="row"><label>旋转°</label><input type="number" id="selR"><span></span></div>
+      </div>
+    </details>
+
+    <details class="section" open>
+      <summary>参考背景（最底层） <span class="chev">▾</span></summary>
+      <div class="body">
+        <div class="btnrow">
+          <button class="primary" id="btnBgImport">导入参考图</button>
+          <button id="btnBgCenter">居中</button>
+          <button id="btnBgRemove">移除</button>
+        </div>
+        <input type="file" id="bgFile" accept="image/*" style="display:none">
+        <div class="row" style="margin-top:8px"><label>透明度</label>
+          <input type="range" id="bgOpacity" min="0" max="1" step="0.01" value="0.6">
+          <input type="number" id="bgOpacityNum" min="0" max="1" step="0.01" value="0.6"></div>
+        <div class="row"><label>缩放</label>
+          <input type="range" id="bgScale" min="0.05" max="4" step="0.01" value="1">
+          <input type="number" id="bgScaleNum" min="0.02" max="8" step="0.01" value="1"></div>
+        <div class="row"><label>旋转°</label>
+          <input type="range" id="bgRot" min="-180" max="180" step="0.5" value="0">
+          <input type="number" id="bgRotNum" min="-360" max="360" step="0.5" value="0"></div>
+        <div class="row"><label>X</label>
+          <input type="range" id="bgCx" min="-480" max="1440" step="1" value="480">
+          <input type="number" id="bgCxNum" step="1" value="480"></div>
+        <div class="row"><label>Y</label>
+          <input type="range" id="bgCy" min="-456" max="1368" step="1" value="456">
+          <input type="number" id="bgCyNum" step="1" value="456"></div>
+        <div class="row"><label>可拖动</label><input type="checkbox" id="bgMovable" checked><span></span></div>
+        <div class="hint">默认居中于圆心，放在所有键的最底层。滑块与数字框同步（数字框可精确输入/微调）。勾「可拖动」时可直接拖动参考图；鼠标停在图上滚动滚轮可缩放。取消勾选「可拖动」后可正常点击/框选键。</div>
+      </div>
+    </details>
+
+    <details class="section">
+      <summary>导入 / 导出 <span class="chev">▾</span></summary>
+      <div class="body">
+        <div class="btnrow">
+          <button class="primary" id="btnExport">导出 JSON</button>
+          <button id="btnImport">导入 JSON</button>
+          <button id="btnDownload">下载 .json</button>
+          <button id="btnUpload">上传 .json</button>
+        </div>
+        <input type="file" id="fileInput" accept=".json,application/json" style="display:none">
+        <div class="hint">JSON 含每环参数 + 每键最终绝对坐标/尺寸/旋转/显隐，导入即可继续调。</div>
+        <textarea id="jsonBox" spellcheck="false"></textarea>
+      </div>
+    </details>
+
+    <details class="section">
+      <summary>导出 C# 数据 <span class="chev">▾</span></summary>
+      <div class="body">
+        <div class="btnrow"><button class="primary" id="btnExportCS">生成 C# 片段</button><button id="btnCopyCS">复制</button></div>
+        <div class="hint">粘贴进 <code>TouchManifest.cs</code> 的 <code>KeyOverrides</code> 数组。</div>
+        <textarea id="csBox" spellcheck="false" style="height:160px"></textarea>
+      </div>
+    </details>
+  </aside>
+
+  <main id="stage">
+    <div id="boardWrap">
+      <div id="board">
+        <img id="bgImage" alt="">
+        <div class="cross v"></div><div class="cross h"></div>
+      </div>
+    </div>
+    <div id="zoomInfo"></div>
+  </main>
+</div>
+<div id="toast"></div>
+
+<script>
+"use strict";
+const W = 960, H = 912, CX = 480, CY = 456;
+
+const NATURAL = {
+  A1:[480.4,456.1], A2:[456.1,480.4], A3:[456.1,480.4], A4:[480.4,456.1],
+  A5:[480.4,456.1], A6:[456.1,480.4], A7:[456.1,480.4], A8:[480.4,456.1],
+  B1:[266.5,252.9], B2:[252.9,266.5], B3:[252.9,266.5], B4:[266.5,252.9],
+  B5:[266.5,252.9], B6:[252.9,266.5], B7:[252.9,266.5], B8:[266.5,252.9],
+  C1:[170.2,373.4], C2:[170.2,373.4],
+  D1:[241.1,324.2], D2:[364.1,362.0], D3:[324.2,241.1], D4:[399.7,399.7],
+  D5:[241.1,324.2], D6:[364.1,362.0], D7:[324.2,241.1], D8:[399.7,399.7],
+  E1:[257.5,257.5], E2:[182.1,182.1], E3:[257.5,257.5], E4:[182.1,182.1],
+  E5:[257.5,257.5], E6:[182.1,182.1], E7:[257.5,257.5], E8:[182.1,182.1]
+};
+const ORDER = ["A1","A2","A3","A4","A5","A6","A7","A8",
+               "B1","B2","B3","B4","B5","B6","B7","B8",
+               "C1","C2",
+               "D1","D2","D3","D4","D5","D6","D7","D8",
+               "E1","E2","E3","E4","E5","E6","E7","E8"];
+const RINGS = {
+  A: { start: 0,    scaleKey: "scaleA", radiusKey: "radiusA", label: "外圈 A（大扇形）" },
+  D: { start: 22.5, scaleKey: "scaleD", radiusKey: "radiusD", label: "D 环" },
+  E: { start: 0,    scaleKey: "scaleE", radiusKey: "radiusE", label: "E 环" },
+  B: { start: 22.5, scaleKey: "scaleB", radiusKey: "radiusB", label: "内圈 B" }
+};
+
+const state = {
+  params: {
+    scaleA:0.70, radiusA:350, scaleD:0.55, radiusD:260,
+    scaleE:0.45, radiusE:185, scaleB:0.42, radiusB:115, scaleC:0.50
+  },
+  ringRot: { A:0, B:0, D:0, E:0, C:0 },   // 每环整体旋转角度（度，顺时针为正）
+  positions: {},
+  visible: {}
+};
+let selection = new Set();
+let dragging = null;   // {sx, sy, origins:Map}
+let listDrag = null;   // {anchor:index, additive:bool}  列表内拖拽多选
+let boardScale = 1;
+
+const boardEl = document.getElementById("board");
+const wrapEl  = document.getElementById("boardWrap");
+const stageEl = document.getElementById("stage");
+const bandEl  = document.getElementById("band");
+const zoomInfo= document.getElementById("zoomInfo");
+
+const round2 = v => Math.round((v + Number.EPSILON) * 100) / 100;
+const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
+
+// ---------- 布局计算 ----------
+function rotAround(px, py, ang) {
+  const dx = px - CX, dy = py - CY;
+  return { x: CX + dx * Math.cos(ang) - dy * Math.sin(ang),
+           y: CY + dx * Math.sin(ang) + dy * Math.cos(ang) };
+}
+function regenerate() {
+  const p = state.params, pos = {}, rr = state.ringRot;
+  for (const fam of ["A","B","D","E"]) {
+    const r = RINGS[fam], radius = p[r.radiusKey], scale = p[r.scaleKey];
+    const off = rr[fam] || 0;                       // 该环整体旋转角
+    for (let i = 0; i < 8; i++) {
+      const label = fam + (i + 1);
+      const a = (r.start + off + 45 * i) * Math.PI / 180;
+      const cx = CX + radius * Math.sin(a), cy = CY - radius * Math.cos(a);
+      const [nw, nh] = NATURAL[label];
+      const w = nw * scale, h = nh * scale;
+      // 旋转只作用于坐标（位置绕圆心转），SVG 自身不旋转
+      pos[label] = { x: cx - w / 2, y: cy - h / 2, w, h, rot: 0 };
+    }
+  }
+  const cw = 170.2 * p.scaleC, ch = 373.4 * p.scaleC;
+  const cUp = (rr && 0) || 0;                       // 占位，保持结构清晰
+  const cAdj = (rr.C || 0) * Math.PI / 180;
+  const c1c = rotAround(CX - cw / 2, CY, cAdj);     // C1 中心绕圆心旋转（只改坐标）
+  const c2c = rotAround(CX + cw / 2, CY, cAdj);     // C2 中心绕圆心旋转（只改坐标）
+  pos.C1 = { x: c1c.x - cw / 2, y: c1c.y - ch / 2, w: cw, h: ch, rot: 0 };
+  pos.C2 = { x: c2c.x - cw / 2, y: c2c.y - ch / 2, w: cw, h: ch, rot: 0 };
+  state.positions = pos;
+  for (const l of ORDER) if (!(l in state.visible)) state.visible[l] = true;
+  render(); renderKeyList();
+}
+
+// ---------- 渲染棋盘 ----------
+function render() {
+  boardEl.querySelectorAll(".key").forEach(e => e.remove());
+  for (const label of ORDER) {
+    const p = state.positions[label]; if (!p) continue;
+    const hidden = state.visible[label] === false;
+    const el = document.createElement("div");
+    el.className = "key" + (selection.has(label) ? " sel" : "") + (hidden ? " hidden-key" : "");
+    el.dataset.label = label;
+    el.style.left = p.x.toFixed(2) + "px";
+    el.style.top  = p.y.toFixed(2) + "px";
+    el.style.width  = p.w.toFixed(2) + "px";
+    el.style.height = p.h.toFixed(2) + "px";
+    if (p.rot) el.style.transform = `rotate(${p.rot}deg)`;
+    const img = document.createElement("img");
+    img.src = "../touch/" + label + ".svg"; img.draggable = false;
+    const tag = document.createElement("span"); tag.className = "tag"; tag.textContent = label;
+    el.appendChild(img); el.appendChild(tag);
+    el.addEventListener("mousedown", onKeyMouseDown);
+    boardEl.appendChild(el);
+  }
+  syncSelPanel();
+}
+
+// ---------- 渲染按键列表 ----------
+function renderKeyList() {
+  const host = document.getElementById("keyList");
+  host.innerHTML = "";
+  for (const label of ORDER) {
+    const row = document.createElement("label");
+    row.className = "krow" + (selection.has(label) ? " sel" : "");
+    row.dataset.label = label;
+    const cb = document.createElement("input");
+    cb.type = "checkbox"; cb.checked = state.visible[label] !== false;
+    cb.addEventListener("change", (e) => {
+      state.visible[label] = e.target.checked; e.stopPropagation();
+      render();
+    });
+    const kl = document.createElement("span"); kl.className = "kl"; kl.textContent = label;
+    const p = state.positions[label];
+    const kx = document.createElement("span"); kx.className = "kx";
+    kx.textContent = p ? `${Math.round(p.x)},${Math.round(p.y)}` : "";
+    row.appendChild(cb); row.appendChild(kl); row.appendChild(kx);
+    // 列表内：按下即选，按住拖动跨行多选（Shift/Ctrl 追加）
+    row.addEventListener("mousedown", (e) => {
+      if (e.target === cb || e.button !== 0) return;
+      e.preventDefault();
+      const additive = e.shiftKey || e.ctrlKey || e.metaKey;
+      if (!additive) selection = new Set([label]);
+      else selection.add(label);
+      listDrag = { anchor: ORDER.indexOf(label), additive };
+      refreshSelectionUI();
+      document.addEventListener("mouseup", onListDragUp);
+    });
+    row.addEventListener("mouseenter", () => { if (listDrag) applyListRange(label); });
+    host.appendChild(row);
+  }
+}
+
+// ---------- 选择 ----------
+function selectOnly(label, additive) {
+  if (additive) { selection.has(label) ? selection.delete(label) : selection.add(label); }
+  else selection = new Set([label]);
+  syncSelPanel();
+}
+function clearSelection() { selection = new Set(); syncSelPanel(); }
+
+// 轻量刷新选中高亮（不重建 DOM）：画布键 + 列表行
+function refreshSelectionUI() {
+  boardEl.querySelectorAll(".key").forEach(el =>
+    el.classList.toggle("sel", selection.has(el.dataset.label)));
+  document.querySelectorAll(".krow").forEach(r =>
+    r.classList.toggle("sel", selection.has(r.dataset.label)));
+  syncSelPanel();
+}
+
+// 列表内拖拽多选
+function onListDragUp() {
+  listDrag = null;
+  document.removeEventListener("mouseup", onListDragUp);
+}
+function applyListRange(currentLabel) {
+  if (!listDrag) return;
+  const cur = ORDER.indexOf(currentLabel);
+  const [a, b] = [Math.min(listDrag.anchor, cur), Math.max(listDrag.anchor, cur)];
+  if (!listDrag.additive) selection = new Set();
+  for (let i = a; i <= b; i++) selection.add(ORDER[i]);
+  refreshSelectionUI();
+}
+
+function syncSelPanel() {
+  document.getElementById("selCount").textContent = selection.size;
+  const arr = [...selection];
+  document.getElementById("selName").textContent = arr.length === 1 ? arr[0] : (arr.length ? arr.length + " 个" : "（未选中）");
+  const single = arr.length === 1 ? state.positions[arr[0]] : null;
+  for (const [id, key] of [["selX","x"],["selY","y"],["selW","w"],["selH","h"],["selR","rot"]]) {
+    const inp = document.getElementById(id); inp.disabled = !single;
+    inp.value = single ? Math.round(single[key] || 0) : "";
+  }
+  // 列表高亮
+  document.querySelectorAll(".krow").forEach(r =>
+    r.classList.toggle("sel", selection.has(r.dataset.label)));
+}
+
+// ---------- 拖动 ----------
+function onKeyMouseDown(e) {
+  if (e.button !== 0) return;
+  e.preventDefault(); e.stopPropagation();
+  const label = this.dataset.label;
+  if (e.shiftKey || e.ctrlKey || e.metaKey) {
+    selection.has(label) ? selection.delete(label) : selection.add(label);
+  } else if (!selection.has(label)) {
+    selection = new Set([label]);
+  }
+  refreshSelectionUI();
+  const origins = new Map();
+  for (const l of selection) origins.set(l, { x: state.positions[l].x, y: state.positions[l].y });
+  dragging = { sx: e.clientX, sy: e.clientY, origins };
+  boardEl.classList.add("dragging");
+  document.addEventListener("mousemove", onMouseMove);
+  document.addEventListener("mouseup", onMouseUp);
+}
+
+function onMouseMove(e) {
+  if (!dragging) return;
+  const dx = (e.clientX - dragging.sx) / boardScale;
+  const dy = (e.clientY - dragging.sy) / boardScale;
+  for (const [l, o] of dragging.origins) {
+    const p = state.positions[l];
+    p.x = Math.round(o.x + dx); p.y = Math.round(o.y + dy);
+  }
+  refreshDraggedPositions();
+}
+
+function refreshDraggedPositions() {
+  for (const l of selection) {
+    const el = boardEl.querySelector(`.key[data-label="${l}"]`);
+    const p = state.positions[l];
+    if (el) { el.style.left = p.x + "px"; el.style.top = p.y + "px"; }
+  }
+  // 同步列表坐标
+  document.querySelectorAll(".krow").forEach(r => {
+    const p = state.positions[r.dataset.label];
+    const kx = r.querySelector(".kx"); if (kx) kx.textContent = `${Math.round(p.x)},${Math.round(p.y)}`;
+  });
+  syncSelPanel();
+}
+
+function onMouseUp() {
+  boardEl.classList.remove("dragging");
+  dragging = null;
+  document.removeEventListener("mousemove", onMouseMove);
+  document.removeEventListener("mouseup", onMouseUp);
+}
+
+// ---------- 画布：点空白取消选择 ----------
+boardEl.addEventListener("mousedown", (e) => {
+  if (e.target !== boardEl || e.button !== 0) return;
+  clearSelection(); refreshSelectionUI();
+});
+
+// ---------- 方向键微调 ----------
+window.addEventListener("keydown", (e) => {
+  if (!selection.size) return;
+  const tag = (e.target.tagName || "").toLowerCase();
+  if (tag === "input" || tag === "textarea") return;   // 输入框里不拦截
+  const base = parseInt(document.getElementById("step").value, 10) || 10;
+  const step = e.shiftKey ? base * 10 : base;
+  let dx = 0, dy = 0;
+  if (e.key === "ArrowLeft")  dx = -step;
+  else if (e.key === "ArrowRight") dx = step;
+  else if (e.key === "ArrowUp")    dy = -step;
+  else if (e.key === "ArrowDown")  dy = step;
+  else return;
+  e.preventDefault();
+  for (const l of selection) { state.positions[l].x += dx; state.positions[l].y += dy; }
+  refreshDraggedPositions();
+});
+
+// ---------- 批量按钮 ----------
+document.querySelectorAll("[data-nudge]").forEach(btn => {
+  btn.addEventListener("click", () => {
+    const base = parseInt(document.getElementById("step").value, 10) || 10;
+    const map = { left:[-base,0], right:[base,0], up:[0,-base], down:[0,base] };
+    const [dx, dy] = map[btn.dataset.nudge];
+    for (const l of selection) { state.positions[l].x += dx; state.positions[l].y += dy; }
+    refreshDraggedPositions();
+  });
+});
+
+// ---------- 视图：缩放 + 平移 ----------
+const view = { scale: 1, tx: 0, ty: 0 };
+function applyView() {
+  wrapEl.style.transform = `translate(${view.tx}px, ${view.ty}px) scale(${view.scale})`;
+  boardScale = view.scale;
+  zoomInfo.textContent = `视图 ${(view.scale*100).toFixed(0)}%  ·  逻辑画布 ${W}×${H}  ·  圆心 (${CX},${CY})  ·  滚轮缩放·中键平移·双击适配`;
+}
+function fit() {
+  const pad = 24;
+  const s = Math.min((stageEl.clientWidth - pad) / W, (stageEl.clientHeight - pad) / H);
+  view.scale = s;
+  view.tx = (stageEl.clientWidth - W * s) / 2;
+  view.ty = (stageEl.clientHeight - H * s) / 2;
+  applyView();
+}
+
+// 滚轮缩放：光标处为锚点（悬停在可拖动的参考图上时改为缩放参考图）
+stageEl.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  const r = stageEl.getBoundingClientRect();
+  const mx = e.clientX - r.left, my = e.clientY - r.top;
+  const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+  const ns = clamp(view.scale * factor, 0.05, 10);
+  const k = ns / view.scale;
+  view.tx = mx - (mx - view.tx) * k;
+  view.ty = my - (my - view.ty) * k;
+  view.scale = ns;
+  applyView();
+}, { passive: false });
+
+// 中键拖动平移
+let pan = null;
+stageEl.addEventListener("mousedown", (e) => {
+  if (e.button !== 1) return;            // 中键
+  e.preventDefault();
+  pan = { sx: e.clientX, sy: e.clientY, ox: view.tx, oy: view.ty };
+  stageEl.style.cursor = "grabbing";
+  document.addEventListener("mousemove", onPan);
+  document.addEventListener("mouseup", onPanUp);
+});
+function onPan(e) {
+  if (!pan) return;
+  view.tx = pan.ox + (e.clientX - pan.sx);
+  view.ty = pan.oy + (e.clientY - pan.sy);
+  applyView();
+}
+function onPanUp() { pan = null; stageEl.style.cursor = "default"; document.removeEventListener("mousemove", onPan); document.removeEventListener("mouseup", onPanUp); }
+
+// 双击画布区域 → 适配窗口
+stageEl.addEventListener("dblclick", (e) => { if (e.target === boardEl || e.target === stageEl) fit(); });
+
+// ---------- 环控制 ----------
+function buildRingControls() {
+  const host = document.getElementById("ringControls");
+  host.innerHTML = "";
+  const defs = [["A","外圈 A（大扇形）"],["D","D 环"],["E","E 环"],["B","内圈 B"]];
+  for (const [fam, label] of defs) {
+    const r = RINGS[fam];
+    const d = document.createElement("details");
+    d.className = "section"; d.open = true;
+    d.innerHTML = `
+      <summary>${label} <span class="chev">▾</span></summary>
+      <div class="body">
+        <div class="row"><label>Scale</label>
+          <input type="range" min="0.1" max="1.2" step="0.01" data-param="${r.scaleKey}" data-kind="range">
+          <input type="number" min="0.05" max="3" step="0.01" data-param="${r.scaleKey}" data-kind="num"></div>
+        <div class="row"><label>Radius</label>
+          <input type="range" min="0" max="520" step="1" data-param="${r.radiusKey}" data-kind="range">
+          <input type="number" min="0" max="900" step="1" data-param="${r.radiusKey}" data-kind="num"></div>
+        <div class="row"><label>旋转°</label>
+          <input type="range" min="-180" max="180" step="0.5" data-rot="${fam}" data-kind="range">
+          <input type="number" min="-360" max="360" step="0.5" data-rot="${fam}" data-kind="num"></div>
+      </div>`;
+    host.appendChild(d);
+  }
+  const c = document.createElement("details");
+  c.className = "section"; c.open = true;
+  c.innerHTML = `
+    <summary>中央 C <span class="chev">▾</span></summary>
+    <div class="body">
+      <div class="row"><label>Scale</label>
+        <input type="range" min="0.1" max="1.5" step="0.01" data-param="scaleC" data-kind="range">
+        <input type="number" min="0.05" max="3" step="0.01" data-param="scaleC" data-kind="num"></div>
+      <div class="row"><label>旋转°</label>
+        <input type="range" min="-180" max="180" step="0.5" data-rot="C" data-kind="range">
+        <input type="number" min="-360" max="360" step="0.5" data-rot="C" data-kind="num"></div>
+    </div>`;
+  host.appendChild(c);
+  host.querySelectorAll("input[data-param]").forEach(inp => {
+    inp.addEventListener("input", () => {
+      const val = parseFloat(inp.value); if (isNaN(val)) return;
+      state.params[inp.dataset.param] = val;
+      syncParamInputs(); regenerate();
+    });
+  });
+  host.querySelectorAll("input[data-rot]").forEach(inp => {
+    inp.addEventListener("input", () => {
+      const val = parseFloat(inp.value); if (isNaN(val)) return;
+      state.ringRot[inp.dataset.rot] = val;
+      syncParamInputs(); regenerate();
+    });
+  });
+  syncParamInputs();
+}
+function syncParamInputs() {
+  document.querySelectorAll("input[data-param]").forEach(inp => {
+    const v = state.params[inp.dataset.param]; if (v === undefined) return;
+    if (document.activeElement !== inp) inp.value = v;
+  });
+  document.querySelectorAll("input[data-rot]").forEach(inp => {
+    const v = state.ringRot[inp.dataset.rot]; if (v === undefined) return;
+    if (document.activeElement !== inp) inp.value = v;
+  });
+}
+
+// ---------- 单键精确输入 ----------
+for (const [id, key] of [["selX","x"],["selY","y"],["selW","w"],["selH","h"],["selR","rot"]]) {
+  document.getElementById(id).addEventListener("input", (e) => {
+    const arr = [...selection]; if (arr.length !== 1) return;
+    const v = parseFloat(e.target.value); if (isNaN(v)) return;
+    state.positions[arr[0]][key] = v; render();
+  });
+}
+
+// ---------- 导入导出 ----------
+function serialize() {
+  return JSON.stringify({
+    version: 2,
+    board: { width: W, height: H, centerX: CX, centerY: CY },
+    params: state.params,
+    ringRot: state.ringRot,
+    background: bg.img ? { cx: bg.cx, cy: bg.cy, w: bg.w, h: bg.h, scale: bg.scale, rot: bg.rot, opacity: bg.opacity } : null,
+    keys: ORDER.map(l => {
+      const p = state.positions[l];
+      return { label: l, x: round2(p.x), y: round2(p.y), w: round2(p.w), h: round2(p.h),
+               rot: round2(p.rot || 0), visible: state.visible[l] !== false };
+    })
+  }, null, 2);
+}
+function deserialize(text) {
+  const data = JSON.parse(text);
+  if (data.params) Object.assign(state.params, data.params);
+  if (data.ringRot) Object.assign(state.ringRot, data.ringRot);
+  if (data.background) { Object.assign(bg, data.background); if (bg.img) { bgSync(); renderBg(); } }
+  if (Array.isArray(data.keys)) for (const k of data.keys) {
+    if (!k.label) continue;
+    state.positions[k.label] = { x:+k.x, y:+k.y, w:+k.w, h:+k.h, rot:+(k.rot||0) };
+    state.visible[k.label] = k.visible !== false;
+  }
+  syncParamInputs(); render(); renderKeyList();
+}
+document.getElementById("btnExport").onclick = () => { document.getElementById("jsonBox").value = serialize(); toast("已导出到文本框"); };
+document.getElementById("btnImport").onclick = () => { try { deserialize(document.getElementById("jsonBox").value); toast("已导入"); } catch (e) { toast("导入失败：" + e.message); } };
+document.getElementById("btnDownload").onclick = () => {
+  const blob = new Blob([serialize()], { type: "application/json" });
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+  a.download = "maimai-board-layout.json"; a.click(); URL.revokeObjectURL(a.href);
+};
+document.getElementById("btnUpload").onclick = () => document.getElementById("fileInput").click();
+document.getElementById("fileInput").addEventListener("change", (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  const rd = new FileReader();
+  rd.onload = () => { try { deserialize(rd.result); toast("已导入 " + f.name); } catch (err) { toast("导入失败：" + err.message); } };
+  rd.readAsText(f);
+});
+
+// C# 导出
+document.getElementById("btnExportCS").onclick = () => {
+  const lines = ["// 每键绝对坐标（左上角 x,y 及宽高），粘贴进 TouchManifest.cs 的 KeyOverrides 数组",
+                 "// new TouchBoardPosition[] {"];
+  for (const l of ORDER) {
+    const p = state.positions[l];
+    if (state.visible[l] === false) continue;   // 隐藏的键不导出
+    lines.push(`    new("${l}", ${round2(p.x)}, ${round2(p.y)}, ${round2(p.w)}, ${round2(p.h)}, '${l[0]}'),`);
+  }
+  lines.push("// };");
+  document.getElementById("csBox").value = lines.join("\n"); toast("已生成 C# 片段");
+};
+document.getElementById("btnCopyCS").onclick = () => {
+  navigator.clipboard.writeText(document.getElementById("csBox").value)
+    .then(() => toast("已复制"), () => toast("复制失败，请手动选中"));
+};
+
+// 全局按钮
+document.getElementById("btnRegenAll").onclick = () => { regenerate(); toast("已按参数重排"); };
+document.getElementById("btnFit").onclick = fit;
+document.getElementById("btnGrid").onclick = () => boardEl.classList.toggle("grid");
+document.getElementById("btnShowAll").onclick = () => { for (const l of ORDER) state.visible[l] = true; render(); renderKeyList(); };
+document.getElementById("btnHideSel").onclick = () => { for (const l of selection) state.visible[l] = false; render(); renderKeyList(); };
+document.getElementById("btnShowSel").onclick = () => { for (const l of selection) state.visible[l] = true; render(); renderKeyList(); };
+document.getElementById("btnBatchScale").onclick = () => {
+  const k = parseFloat(document.getElementById("batchScale").value) || 1;
+  for (const l of selection) {
+    const p = state.positions[l], cx = p.x + p.w / 2, cy = p.y + p.h / 2;
+    p.w *= k; p.h *= k; p.x = cx - p.w / 2; p.y = cy - p.h / 2;
+  }
+  render();
+};
+document.getElementById("btnResetSel").onclick = () => {
+  const keep = new Set(selection);
+  regenerate();
+  selection = keep; render(); renderKeyList();
+  toast("已重置选中到参数位置");
+};
+
+function toast(msg) {
+  const t = document.getElementById("toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(t._t); t._t = setTimeout(() => t.classList.remove("show"), 1400);
+}
+
+// ---------- 参考背景（最底层） ----------
+const bg = { img: null, baseW: 0, baseH: 0, w: 0, h: 0, cx: CX, cy: CY, scale: 1, rot: 0, opacity: 0.6, movable: true };
+let bgDrag = null;
+const bgEl = () => document.getElementById("bgImage");
+
+function renderBg() {
+  const el = bgEl();
+  if (!bg.img) { el.style.display = "none"; return; }
+  el.style.display = "block";
+  el.src = bg.img.src;
+  el.style.left = (bg.cx - bg.w / 2) + "px";
+  el.style.top  = (bg.cy - bg.h / 2) + "px";
+  el.style.width  = bg.w + "px";
+  el.style.height = bg.h + "px";
+  el.style.opacity = bg.opacity;
+  el.style.transform = "rotate(" + bg.rot + "deg)";
+  el.style.transformOrigin = "center center";
+  el.classList.toggle("movable", bg.movable);
+}
+function bgSetScale(s) {
+  bg.scale = clamp(s, 0.05, 8);
+  bg.w = bg.baseW * bg.scale; bg.h = bg.baseH * bg.scale;
+  bgSync();
+  renderBg();
+}
+// 同步所有背景输入控件（滑块 + 数字框）
+function bgSync() {
+  const set = (id, v) => { const el = document.getElementById(id); if (el && document.activeElement !== el) el.value = v; };
+  set("bgOpacity", bg.opacity); set("bgOpacityNum", bg.opacity);
+  set("bgScale", bg.scale);     set("bgScaleNum", bg.scale);
+  set("bgRot", bg.rot);         set("bgRotNum", bg.rot);
+  set("bgCx", Math.round(bg.cx)); set("bgCxNum", Math.round(bg.cx));
+  set("bgCy", Math.round(bg.cy)); set("bgCyNum", Math.round(bg.cy));
+}
+// 把「滑块 + 数字框」绑定到同一个 setter
+function bgBind(rangeId, numId, apply) {
+  const r = document.getElementById(rangeId), n = document.getElementById(numId);
+  const on = (v) => { const x = parseFloat(v); if (isNaN(x)) return; apply(x); bgSync(); renderBg(); };
+  r.addEventListener("input", () => on(r.value));
+  n.addEventListener("input", () => on(n.value));
+}
+
+document.getElementById("btnBgImport").onclick = () => document.getElementById("bgFile").click();
+document.getElementById("bgFile").addEventListener("change", (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  const im = new Image();
+  im.onload = () => {
+    bg.img = im;
+    const k = Math.min(W * 0.8 / im.naturalWidth, H * 0.8 / im.naturalHeight, 1);
+    bg.baseW = im.naturalWidth * k; bg.baseH = im.naturalHeight * k;
+    bg.scale = 1; bg.w = bg.baseW; bg.h = bg.baseH;
+    bg.cx = CX; bg.cy = CY; bg.rot = 0; bg.movable = true;
+    document.getElementById("bgMovable").checked = true;
+    bgSync();
+    renderBg(); toast("已导入参考图（居中，可滚轮缩放/拖动）");
+  };
+  im.src = URL.createObjectURL(f);
+});
+document.getElementById("btnBgCenter").onclick = () => { bg.cx = CX; bg.cy = CY; bg.rot = 0; bgSync(); renderBg(); toast("参考图已居中"); };
+document.getElementById("btnBgRemove").onclick = () => { bg.img = null; renderBg(); toast("已移除参考图"); };
+bgBind("bgOpacity", "bgOpacityNum", (v) => { bg.opacity = clamp(v, 0, 1); });
+bgBind("bgScale",   "bgScaleNum",   (v) => { bg.scale = clamp(v, 0.05, 8); bg.w = bg.baseW * bg.scale; bg.h = bg.baseH * bg.scale; });
+bgBind("bgRot",     "bgRotNum",     (v) => { bg.rot = v; });
+bgBind("bgCx",      "bgCxNum",      (v) => { bg.cx = v; });
+bgBind("bgCy",      "bgCyNum",      (v) => { bg.cy = v; });
+document.getElementById("bgMovable").addEventListener("change", (e) => { bg.movable = e.target.checked; renderBg(); });
+
+// 参考图上按住 Alt 滚动滚轮 → 缩放参考图（普通滚轮仍缩放画布视图）
+bgEl().addEventListener("wheel", (e) => {
+  if (!bg.img || !bg.movable || !e.altKey) return;   // 需要 Alt
+  e.preventDefault(); e.stopPropagation();
+  const factor = e.deltaY < 0 ? 1.08 : 1 / 1.08;
+  bgSetScale(bg.scale * factor);
+}, { passive: false });
+
+// 拖动参考图（勾选「可拖动」时）
+bgEl().addEventListener("mousedown", (e) => {
+  if (!bg.movable || e.button !== 0) return;
+  e.preventDefault(); e.stopPropagation();
+  bgDrag = { sx: e.clientX, sy: e.clientY, ox: bg.cx, oy: bg.cy };
+  document.addEventListener("mousemove", onBgMove);
+  document.addEventListener("mouseup", onBgUp);
+});
+function onBgMove(e) {
+  if (!bgDrag) return;
+  bg.cx = Math.round(bgDrag.ox + (e.clientX - bgDrag.sx) / boardScale);
+  bg.cy = Math.round(bgDrag.oy + (e.clientY - bgDrag.sy) / boardScale);
+  bgSync();
+  renderBg();
+}
+function onBgUp() { bgDrag = null; document.removeEventListener("mousemove", onBgMove); document.removeEventListener("mouseup", onBgUp); }
+
+// 启动
+window.addEventListener("resize", fit);
+buildRingControls();
+regenerate();
+fit();
+renderBg();
+</script>
+</body>
+</html>
