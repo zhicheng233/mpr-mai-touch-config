@@ -20,7 +20,7 @@ public readonly record struct ProtocolFrame(byte Type, ushort Sequence, byte[] P
 
     public static ProtocolFrame Decode(ReadOnlySpan<byte> bytes)
     {
-        if (bytes.Length < ProtocolConstants.HeaderLength + ProtocolConstants.CrcLength || bytes[0] != ProtocolConstants.Sync0 || bytes[1] != ProtocolConstants.Sync1 || bytes[2] != ProtocolConstants.Version)
+        if (bytes.Length < ProtocolConstants.HeaderLength + ProtocolConstants.CrcLength || bytes[0] != ProtocolConstants.Sync0 || bytes[1] != ProtocolConstants.Sync1 || (bytes[2] >> 4) != (ProtocolConstants.Version >> 4))
             throw new FormatException("Invalid frame header.");
         var length = BinaryPrimitives.ReadUInt16LittleEndian(bytes[6..]);
         if (length > ProtocolConstants.MaxPayload || bytes.Length != ProtocolConstants.HeaderLength + length + ProtocolConstants.CrcLength)

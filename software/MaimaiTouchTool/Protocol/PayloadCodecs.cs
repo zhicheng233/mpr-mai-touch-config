@@ -3,15 +3,21 @@ using System.Buffers.Binary;
 namespace MaimaiTouchTool.Protocol;
 
 public sealed record BoardConfig(byte BaseThreshold = 20, sbyte SensOffset = 0, byte TouchDebounce = 1, byte ReleaseDebounce = 1, byte Sfi = 2, byte Esi = 0);
-public sealed record ConfigBlob(BoardConfig[] Boards, sbyte[] ElectrodeOffsets)
+public sealed record ConfigBlob(BoardConfig[] Boards, sbyte[] ElectrodeOffsets, byte[]? KeyMap = null)
 {
-    public const byte Schema = 1;
+    public const byte Schema = 2;
+
+    /// <summary>实际生效的 keyMap：未显式提供时使用默认焊接顺序。</summary>
+    public byte[] Mapping => KeyMap ?? KeyMapping.Default;
+
     public byte[] Encode()
     {
         if (Boards.Length != 4 || ElectrodeOffsets.Length != 34 || Boards.Any(b => b.BaseThreshold is < 1 or > 255 || b.SensOffset is < -127 or > 127 || b.TouchDebounce > 7 || b.ReleaseDebounce > 7 || b.Sfi > 3 || b.Esi > 7) || ElectrodeOffsets.Any(x => x is < -127 or > 127)) throw new ArgumentException("Config is outside protocol ranges.");
+        if (!KeyMapping.TryValidate(Mapping, out var mappingError)) throw new ArgumentException($"Config key mapping is invalid: {mappingError}.");
         var bytes = new byte[ProtocolConstants.ConfigBlobLength]; bytes[0] = Schema;
         for (var i = 0; i < 4; i++) { var b = Boards[i]; var offset = 1 + i * 6; bytes[offset] = b.BaseThreshold; bytes[offset + 1] = unchecked((byte)b.SensOffset); bytes[offset + 2] = b.TouchDebounce; bytes[offset + 3] = b.ReleaseDebounce; bytes[offset + 4] = b.Sfi; bytes[offset + 5] = b.Esi; }
         for (var i = 0; i < 34; i++) bytes[25 + i] = unchecked((byte)ElectrodeOffsets[i]);
+        Mapping.CopyTo(bytes, 59);
         return bytes;
     }
     public static ConfigBlob Decode(ReadOnlySpan<byte> bytes)
@@ -19,9 +25,11 @@ public sealed record ConfigBlob(BoardConfig[] Boards, sbyte[] ElectrodeOffsets)
         if (bytes.Length != ProtocolConstants.ConfigBlobLength || bytes[0] != Schema) throw new FormatException("Invalid config blob.");
         var boards = new BoardConfig[4]; for (var i = 0; i < 4; i++) { var o = 1 + i * 6; boards[i] = new(bytes[o], unchecked((sbyte)bytes[o + 1]), bytes[o + 2], bytes[o + 3], bytes[o + 4], bytes[o + 5]); }
         var electrodes = new sbyte[34]; for (var i = 0; i < electrodes.Length; i++) electrodes[i] = unchecked((sbyte)bytes[25 + i]);
-        return new ConfigBlob(boards, electrodes);
+        var mapping = bytes.Slice(59, 34).ToArray();
+        if (!KeyMapping.TryValidate(mapping, out _)) throw new FormatException("Invalid config key mapping.");
+        return new ConfigBlob(boards, electrodes, mapping);
     }
-    public static ConfigBlob Defaults() => new(Enumerable.Repeat(new BoardConfig(), 4).ToArray(), new sbyte[] { -3, -3, -3, -3, 0, -3, -3, -3, -17, -18, 0, 0, 2, 0, 2, 3, -17, -19, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -18, -2, 0, 0 });
+    public static ConfigBlob Defaults() => new(Enumerable.Repeat(new BoardConfig(), 4).ToArray(), new sbyte[] { -3, -3, -3, -3, 0, -3, -3, -3, -17, -18, 0, 0, 2, 0, 2, 3, -17, -19, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -18, -2, 0, 0 }, (byte[])KeyMapping.Default.Clone());
 }
 
 public readonly record struct AckPayload(byte RequestType, byte Status, byte Mode, byte Flags, byte[] Result)

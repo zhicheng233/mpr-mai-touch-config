@@ -6,7 +6,7 @@ namespace protocol {
 
 constexpr uint8_t Sync0 = 0xAA;
 constexpr uint8_t Sync1 = 0x55;
-constexpr uint8_t Version = 0x10;
+constexpr uint8_t Version = 0x11;
 constexpr uint16_t MaxPayload = 256;
 constexpr uint16_t MaxFrameLength = 266;
 constexpr uint32_t FrameTimeoutMs = 250;

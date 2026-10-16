@@ -1,5 +1,7 @@
 #include "protocol.h"
 
+#include "config.h"
+
 namespace {
 
 uint16_t readLe16(const uint8_t* value) {
@@ -66,7 +68,7 @@ bool validPayloadLength(uint8_t type, uint16_t length) {
     case TypeStreamStop:
       return length == 0;
     case TypeSetConfig:
-      return length == 59;
+      return length == config::BlobLength;
     case TypeCalibrate:
       return length == 3;
     case TypeStreamStart:
