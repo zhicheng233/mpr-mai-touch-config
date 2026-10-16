@@ -251,7 +251,7 @@ public static class GuidedCalibrationAlgorithm
             var releaseDebounce = takeDebounce ? (byte)Math.Clamp(outcome!.NewReleaseDebounce, 0, MaxDebounce) : source.ReleaseDebounce;
             boards[board] = source with { BaseThreshold = baseThreshold, SensOffset = sensOffset, TouchDebounce = touchDebounce, ReleaseDebounce = releaseDebounce };
         }
-        return new ConfigBlob(boards, offsets);
+        return new ConfigBlob(boards, offsets, KeyMapping.Clone(current.Mapping));
     }
 
     /// <summary>把相对偏移对齐到芯片分辨率（4）的最近倍数。</summary>

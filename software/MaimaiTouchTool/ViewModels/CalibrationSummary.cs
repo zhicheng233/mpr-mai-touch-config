@@ -29,7 +29,7 @@ public sealed class CalibrationBoardResult
 /// <summary>一次校准的可展示结果：板级明细 + 一行概要。纯逻辑，便于单测。</summary>
 public sealed class CalibrationSummary
 {
-    private CalibrationSummary(bool succeeded, bool readbackFailed, CalDonePayload done, IReadOnlyList<CalibrationBoardResult> boards, int calibratedChannels, int minBaseline, int maxBaseline)
+    private CalibrationSummary(bool succeeded, bool readbackFailed, CalDonePayload done, IReadOnlyList<CalibrationBoardResult> boards, int calibratedChannels, int minBaseline, int maxBaseline, byte[]? mapping = null)
     {
         Succeeded = succeeded;
         ReadbackFailed = readbackFailed;
@@ -38,6 +38,7 @@ public sealed class CalibrationSummary
         CalibratedChannels = calibratedChannels;
         MinBaseline = minBaseline;
         MaxBaseline = maxBaseline;
+        Mapping = KeyMapping.Clone(mapping);
     }
 
     public bool Succeeded { get; }
@@ -47,6 +48,8 @@ public sealed class CalibrationSummary
     public int CalibratedChannels { get; }
     public int MinBaseline { get; }
     public int MaxBaseline { get; }
+    /// <summary>摘要使用的按键映射（校准后配置优先）。</summary>
+    public byte[] Mapping { get; }
     public int ChangedBoardCount => Boards.Count(board => board.Changed);
     public string FailureReasonName => Enum.GetName(Done.Reason) ?? "unknown";
     /// <summary>失败诊断：涉及的通道及越界幅度（仅失败时可能非空）。</summary>
@@ -55,11 +58,11 @@ public sealed class CalibrationSummary
     public string DiagnosticDetail => string.Join(", ", Diagnostics.Select(d => $"{ChannelLabel(d.Channel)} {d.Magnitude}"));
 
     /// <summary>把固件通道号(0..47 = 板*12+端口)渲染为可读标签，例如 B2P5 或键名。</summary>
-    private static string ChannelLabel(byte channel)
+    private string ChannelLabel(byte channel)
     {
         var board = channel / 12;
         var port = channel % 12;
-        var keyIndex = TelemetrySessionModel.KeyIndexForChannel(channel);
+        var keyIndex = KeyMapping.KeyIndexForChannel(Mapping, channel);
         return keyIndex >= 0
             ? $"B{board + 1}P{port}"
             : $"B{board + 1}P{port}(-UNMAPPED)";
@@ -82,6 +85,7 @@ public sealed class CalibrationSummary
         }
         if (calibratedChannels == 0) { minBaseline = 0; maxBaseline = 0; }
 
+        var mapping = KeyMapping.Clone(current?.Mapping ?? previous?.Mapping);
         var boards = new List<CalibrationBoardResult>();
         if (current is not null)
         {
@@ -93,26 +97,26 @@ public sealed class CalibrationSummary
                 for (var port = 0; port < 12; port++)
                 {
                     var channel = board * 12 + port;
-                    var keyIndex = TelemetrySessionModel.KeyIndexForChannel(channel);
+                    var keyIndex = KeyMapping.KeyIndexForChannel(mapping, channel);
                     if (keyIndex < 0 || channel >= done.TouchThreshold.Length) continue;
                     mapped++;
-                    var previousValue = previous is not null ? ThresholdFor(previous, board, channel) : ThresholdFor(current, board, channel);
+                    var previousValue = previous is not null ? ThresholdFor(previous, board, channel, mapping) : ThresholdFor(current, board, channel, mapping);
                     if (previousValue != done.TouchThreshold[channel]) changed++;
                 }
                 boards.Add(new CalibrationBoardResult(board + 1, previousThreshold, current.Boards[board].BaseThreshold, mapped, changed));
             }
         }
 
-        return new CalibrationSummary(true, current is null, done, boards, calibratedChannels, minBaseline, maxBaseline);
+        return new CalibrationSummary(true, current is null, done, boards, calibratedChannels, minBaseline, maxBaseline, mapping);
     }
 
     /// <summary>校准失败时的空摘要（保留诊断块）。</summary>
     public static CalibrationSummary Failed(CalDonePayload done) => new(false, false, done, [], 0, 0, 0);
 
     /// <summary>与固件 thresholdForChannel 一致：clamp(baseThreshold + sensOffset + electrodeOffset, 1, 1023)。</summary>
-    private static int ThresholdFor(ConfigBlob config, int board, int channel)
+    private static int ThresholdFor(ConfigBlob config, int board, int channel, byte[] mapping)
     {
-        var keyIndex = TelemetrySessionModel.KeyIndexForChannel(channel);
+        var keyIndex = KeyMapping.KeyIndexForChannel(mapping, channel);
         var offset = keyIndex >= 0 && keyIndex < config.ElectrodeOffsets.Length ? config.ElectrodeOffsets[keyIndex] : 0;
         return Math.Clamp(config.Boards[board].BaseThreshold + config.Boards[board].SensOffset + offset, 1, 1023);
     }

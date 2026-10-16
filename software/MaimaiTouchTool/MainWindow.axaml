@@ -205,6 +205,66 @@
             </ItemsControl>
           </StackPanel>
         </Border>
+
+        <Border Classes="panel">
+          <StackPanel Spacing="10">
+            <StackPanel Spacing="3">
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Classes="section" Margin="0" VerticalAlignment="Center" Text="{DynamicResource Config.Mapping}"/>
+                <Button Grid.Column="1" Command="{Binding RestoreDefaultMappingCommand}" Content="{DynamicResource Config.Mapping.Restore}"/>
+              </Grid>
+              <TextBlock Foreground="#A9B1BA" Text="{DynamicResource Config.MappingHint}" TextWrapping="Wrap"/>
+            </StackPanel>
+
+            <Border Background="#2A1A1A" BorderBrush="#8A3A3A" BorderThickness="1" CornerRadius="4" Padding="10,6" IsVisible="{Binding HasMappingConflict}">
+              <TextBlock Foreground="#E8A0A0" TextWrapping="Wrap" Text="{DynamicResource Config.Mapping.Conflict}"/>
+            </Border>
+
+            <ItemsControl ItemsSource="{Binding Editor.KeyMappings}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                  <UniformGrid Columns="2"/>
+                </ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <Grid ColumnDefinitions="54,72,72,*" ColumnSpacing="6" Margin="0,2,12,2">
+                    <TextBlock FontWeight="Bold" FontSize="12" Foreground="#D8B46A" VerticalAlignment="Center" Text="{Binding Label}"/>
+                    <ComboBox Grid.Column="1" HorizontalAlignment="Stretch" ItemsSource="{Binding BoardItems}" SelectedItem="{Binding BoardNumber}"/>
+                    <ComboBox Grid.Column="2" HorizontalAlignment="Stretch" ItemsSource="{Binding ChannelItems}" SelectedItem="{Binding Channel}"/>
+                    <TextBlock Grid.Column="3" VerticalAlignment="Center" FontSize="11" Foreground="#7F8A95" Text="{Binding HardwareHint}" TextWrapping="NoWrap"/>
+                  </Grid>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+        </Border>
+
+        <Border Classes="panel">
+          <StackPanel Spacing="10">
+            <StackPanel Spacing="3">
+              <TextBlock Classes="section" Margin="0" Text="{DynamicResource Mapping.Title}"/>
+              <TextBlock Foreground="#A9B1BA" Text="{DynamicResource Mapping.Hint}" TextWrapping="Wrap"/>
+            </StackPanel>
+
+            <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding ShowMappingIntro}">
+              <Button Classes="primary" Command="{Binding StartMappingCommand}" Content="{DynamicResource Mapping.Start}"/>
+            </StackPanel>
+
+            <StackPanel Spacing="8" IsVisible="{Binding IsMappingRunning}">
+              <TextBlock FontWeight="SemiBold" Text="{Binding MappingStepLabel}" TextWrapping="Wrap"/>
+              <ProgressBar Minimum="0" Maximum="1" Value="{Binding MappingProgress}" Height="8"/>
+              <TextBlock FontSize="11" Foreground="#A9B1BA" Text="{Binding MappingLiveDepthLabel}"/>
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Command="{Binding SkipMappingKeyCommand}" Content="{DynamicResource Mapping.SkipKey}"/>
+                <Button Command="{Binding FinishMappingKeyCommand}" Content="{DynamicResource Mapping.FinishKey}"/>
+                <Button Command="{Binding CancelMappingCommand}" Content="{DynamicResource Mapping.Cancel}"/>
+              </StackPanel>
+            </StackPanel>
+
+            <TextBlock IsVisible="{Binding HasMappingHeadline}" Text="{Binding MappingHeadline}" TextWrapping="Wrap"/>
+          </StackPanel>
+        </Border>
       </StackPanel>
       </ScrollViewer>
       </TabItem>

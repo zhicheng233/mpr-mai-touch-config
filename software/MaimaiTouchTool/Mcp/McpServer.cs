@@ -34,6 +34,10 @@ public static class McpServer
         Tool("set_electrode", "暂存某个游戏键的电极偏移（需 apply 才生效）",
             ("key", ("string", "键名，如 A1 或 E8")),
             ("offset", ("integer", "电极偏移 -127..127"))),
+        Tool("set_mapping", "暂存某个游戏键的板/通道映射（板号 1-4，通道 0-11；需 apply 才生效；34 键通道必须互不重复）",
+            ("key", ("string", "键名，如 A1 或 E8")),
+            ("board", ("integer", "板号 1-4")),
+            ("channel", ("integer", "通道 0-11"))),
         Tool("apply", "SET_CFG + APPLY_CFG + 读回校验，使暂存配置生效"),
         Tool("save", "SAVE_CFG，把已应用配置写入 EEPROM"),
         Tool("calibrate", "触发自动校准并等待结果"),
@@ -101,6 +105,7 @@ public static class McpServer
                 "get_config" => GetConfig(),
                 "set_board" => SetBoard(args),
                 "set_electrode" => SetElectrode(args),
+                "set_mapping" => SetMapping(args),
                 "apply" => await ApplyAsync(),
                 "save" => await SaveAsync(),
                 "calibrate" => await CalibrateAsync(),
@@ -198,11 +203,25 @@ public static class McpServer
         return $"electrode {key} staged: offset={offsets[index]}";
     }
 
+    private static string SetMapping(JsonObject args)
+    {
+        var key = args["key"]?.GetValue<string>() ?? throw new InvalidOperationException("key required");
+        var board = args["board"]?.GetValue<int>() ?? throw new InvalidOperationException("board required (1-4)");
+        var channel = args["channel"]?.GetValue<int>() ?? throw new InvalidOperationException("channel required (0-11)");
+        if (board is < 1 or > 4) throw new InvalidOperationException("board must be 1-4");
+        if (channel is < 0 or > 11) throw new InvalidOperationException("channel must be 0-11");
+        var index = KeyIndex(key);
+        var mapping = KeyMapping.Clone(staged.Mapping);
+        mapping[index] = KeyMapping.Pack(board - 1, channel);
+        if (!KeyMapping.TryValidate(mapping, out var error)) throw new InvalidOperationException($"mapping conflict: {error}; each channel must be used by exactly one key");
+        staged = staged with { KeyMap = mapping };
+        return $"mapping {key} staged: board={board} channel={channel}";
+    }
+
     private static int KeyIndex(string key)
     {
-        var names = new[] { "A1","A2","A3","A4","A5","A6","A7","A8","B1","B2","B3","B4","B5","B6","B7","B8","C1","C2","D1","D2","D3","D4","D5","D6","D7","D8","E1","E2","E3","E4","E5","E6","E7","E8" };
         var normalized = key.Trim().ToUpperInvariant();
-        var index = Array.IndexOf(names, normalized);
+        var index = Array.IndexOf(KeyMapping.KeyLabels, normalized);
         if (index < 0) throw new InvalidOperationException($"unknown key {key}");
         return index;
     }
@@ -269,6 +288,8 @@ public static class McpServer
             ["touchDebounce"] = b.TouchDebounce, ["releaseDebounce"] = b.ReleaseDebounce,
             ["sfi"] = b.Sfi, ["esi"] = b.Esi }).ToArray()),
         ["electrodeOffsets"] = new JsonArray(config.ElectrodeOffsets.Select(o => (JsonNode)o).ToArray()),
+        ["keyMap"] = new JsonArray(config.Mapping.Select(p => (JsonNode)new JsonObject {
+            ["board"] = KeyMapping.BoardOf(p) + 1, ["channel"] = KeyMapping.ChannelOf(p) }).ToArray()),
     };
 
     private static JsonObject Tool(string name, string description, params (string, (string, string))[] parameters)

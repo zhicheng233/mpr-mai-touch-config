@@ -23,20 +23,23 @@ public sealed class TelemetryChannelModel : NotifyModel
     private ushort threshold;
     private bool isTouched;
     private byte chipStatus;
+    private string keyLabel;
 
     public TelemetryChannelModel(int index, string keyLabel)
     {
         Index = index;
         Board = index / 12;
         Port = index % 12;
-        KeyLabel = keyLabel;
+        this.keyLabel = keyLabel;
     }
 
     public int Index { get; }
     public int Board { get; }
     public int Port { get; }
     public string ChannelLabel => $"CH{Board + 1}:{Port:00}";
-    public string KeyLabel { get; }
+    // 该通道当前映射到的游戏按键名（未映射为 "unmapped"），随配置中的 keyMap 变化。
+    public string KeyLabel { get => keyLabel; private set { keyLabel = value; OnPropertyChanged(); } }
+    public void ApplyKeyLabel(string label) => KeyLabel = label;
     public ushort Filtered { get => filtered; private set { filtered = value; OnPropertyChanged(); OnPropertyChanged(nameof(Delta)); } }
     public ushort Baseline { get => baseline; private set { baseline = value; OnPropertyChanged(); OnPropertyChanged(nameof(Delta)); OnPropertyChanged(nameof(ThresholdValue)); } }
     public int Delta => Baseline - Filtered;
@@ -106,13 +109,16 @@ public sealed class TelemetrySessionModel : NotifyModel
     private ushort requestedRateHz = ProtocolConstants.DefaultStreamRateHz;
     private ushort acceptedRateHz;
     private string lastError = string.Empty;
+    // 当前生效的按键映射（随 ApplyThresholds 里的配置更新）；用于通道↔按键与触摸位解码。
+    private byte[] keyMap = KeyMapping.Clone(null);
 
     public TelemetrySessionModel()
     {
         for (var index = 0; index < 4; index++) Chips.Add(new TelemetryChipModel(index));
+        var labels = KeyMapping.ChannelLabels(keyMap);
         for (var index = 0; index < 48; index++)
         {
-            var channel = new TelemetryChannelModel(index, ChannelKeyLabels[index]);
+            var channel = new TelemetryChannelModel(index, labels[index]);
             Channels.Add(channel);
             Chips[index / 12].Channels.Add(channel);
         }
@@ -140,17 +146,20 @@ public sealed class TelemetrySessionModel : NotifyModel
     public ushort I2cErrors => Chips.Count == 0 ? (ushort)0 : Chips.Max(chip => chip.I2cErrors);
     public string LastError { get => lastError; private set { lastError = value; OnPropertyChanged(); } }
 
-    // 依据当前配置刷新每个通道的触摸阈值（与固件 config::touchDelta 一致）：
+    // 依据当前配置刷新每个通道的触摸阈值与按键标签（与固件 config::touchDelta 一致）：
     // delta = clamp(baseThreshold + sensOffset + electrodeOffset, 1, 1023)；未映射通道 electrodeOffset 取 0。
     public void ApplyThresholds(ConfigBlob config)
     {
+        keyMap = KeyMapping.Clone(config.Mapping);
+        var labels = KeyMapping.ChannelLabels(keyMap);
         for (var channel = 0; channel < Channels.Count; channel++)
         {
             var board = channel / 12;
-            var keyIndex = MapKeyIndex(channel);
+            var keyIndex = KeyMapping.KeyIndexForChannel(keyMap, channel);
             var offset = keyIndex >= 0 ? (int)config.ElectrodeOffsets[keyIndex] : 0;
             var delta = Math.Clamp((int)config.Boards[board].BaseThreshold + (int)config.Boards[board].SensOffset + offset, 1, 1023);
             Channels[channel].ApplyThreshold((ushort)delta);
+            Channels[channel].ApplyKeyLabel(labels[channel]);
         }
     }
 
@@ -204,7 +213,7 @@ public sealed class TelemetrySessionModel : NotifyModel
         for (var index = 0; index < 4; index++) Chips[index].Apply(frame.ChipStatus[index], frame.I2cErrors);
         for (var index = 0; index < Channels.Count; index++)
         {
-            var keyIndex = MapKeyIndex(index);
+            var keyIndex = KeyMapping.KeyIndexForChannel(keyMap, index);
             var touched = keyIndex >= 0 && (frame.TouchBits & (1UL << (33 - keyIndex))) != 0;
             Channels[index].Apply(frame.Filtered[index], frame.Baseline[index], touched, frame.ChipStatus[index / 12]);
         }
@@ -241,32 +250,7 @@ public sealed class TelemetrySessionModel : NotifyModel
         while (Log.Count > MaxLogEntries) Log.RemoveAt(0);
     }
 
-    private static int MapKeyIndex(int channel)
-    {
-        for (var index = 0; index < KeyChannels.Length; index++) if (KeyChannels[index].Board * 12 + KeyChannels[index].Port == channel) return index;
-        return -1;
-    }
-
-    /// <summary>通道（board*12 + port）对应的游戏按键索引；未映射返回 -1。与固件 touchmap::Keys 一致。</summary>
-    public static int KeyIndexForChannel(int channel) => MapKeyIndex(channel);
-    public static bool IsMappedChannel(int channel) => MapKeyIndex(channel) >= 0;
-
-    private static readonly (int Board, int Port)[] KeyChannels =
-    [
-        (3, 4), (3, 0), (2, 4), (2, 0), (1, 5), (1, 0), (0, 4), (0, 0),
-        (3, 5), (3, 1), (2, 5), (2, 1), (1, 6), (1, 1), (0, 5), (0, 1),
-        (2, 8), (1, 2), (3, 6), (3, 2), (2, 6), (2, 2), (1, 7), (1, 3),
-        (0, 6), (0, 2), (3, 7), (3, 3), (2, 7), (2, 3), (1, 8), (1, 4),
-        (0, 7), (0, 3)
-    ];
-
-    private static readonly string[] ChannelKeyLabels = BuildChannelKeyLabels();
-
-    private static string[] BuildChannelKeyLabels()
-    {
-        var labels = Enumerable.Repeat("unmapped", 48).ToArray();
-        var names = new[] { "A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8", "B1", "B2", "B3", "B4", "B5", "B6", "B7", "B8", "C1", "C2", "D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8", "E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8" };
-        for (var index = 0; index < KeyChannels.Length; index++) labels[KeyChannels[index].Board * 12 + KeyChannels[index].Port] = names[index];
-        return labels;
-    }
+    /// <summary>默认映射下通道（board*12 + port）对应的游戏按键索引；默认映射里未使用返回 -1。</summary>
+    public static int KeyIndexForChannel(int channel) => KeyMapping.KeyIndexForChannel(KeyMapping.Default, channel);
+    public static bool IsMappedChannel(int channel) => KeyIndexForChannel(channel) >= 0;
 }

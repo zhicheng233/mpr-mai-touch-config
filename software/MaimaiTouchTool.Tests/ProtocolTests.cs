@@ -18,7 +18,7 @@ public sealed class ProtocolTests
     {
         var frame = new ProtocolFrame((byte)ProtocolConstants.FrameType.SetConfig, 42, ConfigBlob.Defaults().Encode());
         var encoded = frame.Encode();
-        Assert.Equal(69, encoded.Length);
+        Assert.Equal(103, encoded.Length);
         var decoded = ProtocolFrame.Decode(encoded);
         Assert.Equal(frame.Type, decoded.Type); Assert.Equal(frame.Sequence, decoded.Sequence); Assert.Equal(frame.Payload, decoded.Payload);
         Assert.Throws<ArgumentOutOfRangeException>(() => new ProtocolFrame(1, 1, new byte[257]).Encode());
@@ -37,14 +37,53 @@ public sealed class ProtocolTests
     }
 
     [Fact]
-    public void ConfigBlobIsExactly59BytesAndRoundTrips()
+    public void ConfigBlobIsExactly93BytesAndRoundTrips()
     {
         var config = ConfigBlob.Defaults();
-        Assert.Equal(59, config.Encode().Length);
+        Assert.Equal(93, config.Encode().Length);
         var decoded = ConfigBlob.Decode(config.Encode());
         Assert.Equal(config.Boards, decoded.Boards); Assert.Equal(config.ElectrodeOffsets, decoded.ElectrodeOffsets);
-        var bad = config.Encode(); bad[0] = 2;
+        Assert.Equal(KeyMapping.Default, decoded.Mapping);
+        var bad = config.Encode(); bad[0] = 1;
         Assert.Throws<FormatException>(() => ConfigBlob.Decode(bad));
+    }
+
+    [Fact]
+    public void ConfigBlobCarriesKeyMapAndRejectsDuplicates()
+    {
+        var mapping = (byte[])KeyMapping.Default.Clone();
+        mapping[0] = KeyMapping.Pack(0, 11);   // A1 moved to board 1 / channel 11
+        mapping[1] = KeyMapping.Pack(0, 10);
+        var config = ConfigBlob.Defaults() with { KeyMap = mapping };
+        var decoded = ConfigBlob.Decode(config.Encode());
+        Assert.Equal(mapping, decoded.Mapping);
+        Assert.Equal(0, KeyMapping.BoardOf(decoded.Mapping[0]));
+        Assert.Equal(11, KeyMapping.ChannelOf(decoded.Mapping[0]));
+
+        // 两键指向同一通道 → Encode 必须拒绝。
+        var duplicate = (byte[])KeyMapping.Default.Clone();
+        duplicate[0] = duplicate[1];
+        Assert.Throws<ArgumentException>(() => (ConfigBlob.Defaults() with { KeyMap = duplicate }).Encode());
+
+        // 越界通道 → 拒绝。
+        var outOfRange = (byte[])KeyMapping.Default.Clone();
+        outOfRange[0] = KeyMapping.Pack(0, 12);
+        Assert.False(KeyMapping.TryValidate(outOfRange, out var error));
+        Assert.NotNull(error);
+        Assert.Throws<ArgumentException>(() => (ConfigBlob.Defaults() with { KeyMap = outOfRange }).Encode());
+    }
+
+    [Fact]
+    public void KeyMappingResolvesChannelAndKeyLabels()
+    {
+        var map = KeyMapping.Default;
+        Assert.Equal(7, KeyMapping.KeyIndexForChannel(map, 0));   // board0/port0 = A8
+        Assert.Equal(0, KeyMapping.KeyIndexForChannel(map, KeyMapping.ChannelIndexOf(52))); // board3/port4 = A1
+        Assert.Equal(-1, KeyMapping.KeyIndexForChannel(map, 8));  // board0/port8 unused
+        var labels = KeyMapping.ChannelLabels(map);
+        Assert.Equal("A8", labels[0]);
+        Assert.Equal("unmapped", labels[8]);
+        Assert.True(KeyMapping.TryValidate(map, out _));
     }
 
     [Fact]
@@ -279,7 +318,7 @@ public sealed class WorkflowTests
         var applied = await workflow.ApplyAsync(ConfigBlob.Defaults());
         await workflow.SaveAsync();
         Assert.Equal(new byte[] { 0x11, 0x13, 0x10, 0x12 }, client.Types);
-        Assert.Equal(59, client.PayloadLengths[0]);
+        Assert.Equal(93, client.PayloadLengths[0]);
         Assert.Equal(ConfigBlob.Defaults().Encode(), applied.Encode());
     }
 

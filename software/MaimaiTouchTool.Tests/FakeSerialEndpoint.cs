@@ -153,7 +153,7 @@ internal sealed class FakeSerialEndpoint : IByteStream
         switch (type)
         {
             case ProtocolConstants.FrameType.Version when request.Payload.Length == 0:
-                response = Ack(request, [1, 0, 1, 2, 3, 0x07, 0, 0, 0, 0, 1, 48, 34, 4, (byte)mode, 1]);
+                response = Ack(request, [1, 1, 1, 2, 3, 0x17, 0, 0, 0, 0, 1, 48, 34, 4, (byte)mode, 1]);
                 break;
             case ProtocolConstants.FrameType.EnterConfig when request.Payload.Length == 0 && mode == ProtocolConstants.DeviceMode.Game:
                 mode = ProtocolConstants.DeviceMode.ConfigIdle; staged = ConfigBlob.Decode(applied.Encode()); response = Ack(request); break;
