@@ -1,0 +1,53 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.3.8" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.3.8" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.8" />
+    <PackageReference Include="Avalonia.Svg.Skia" Version="11.3.0" />
+    <PackageReference Include="System.IO.Ports" Version="8.0.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <AvaloniaResource Include="..\..\touch\A1.svg" Link="Assets\Touch\A1.svg" /><AvaloniaResource Include="..\..\touch\A1_touch.svg" Link="Assets\Touch\A1_touch.svg" />
+    <AvaloniaResource Include="..\..\touch\A2.svg" Link="Assets\Touch\A2.svg" /><AvaloniaResource Include="..\..\touch\A2_touch.svg" Link="Assets\Touch\A2_touch.svg" />
+    <AvaloniaResource Include="..\..\touch\A3.svg" Link="Assets\Touch\A3.svg" /><AvaloniaResource Include="..\..\touch\A3_touch.svg" Link="Assets\Touch\A3_touch.svg" />
+    <AvaloniaResource Include="..\..\touch\A4.svg" Link="Assets\Touch\A4.svg" /><AvaloniaResource Include="..\..\touch\A4_touch.svg" Link="Assets\Touch\A4_touch.svg" />
+    <AvaloniaResource Include="..\..\touch\A5.svg" Link="Assets\Touch\A5.svg" /><AvaloniaResource Include="..\..\touch\A5_touch.svg" Link="Assets\Touch\A5_touch.svg" />
+    <AvaloniaResource Include="..\..\touch\A6.svg" Link="Assets\Touch\A6.svg" /><AvaloniaResource Include="..\..\touch\A6_touch.svg" Link="Assets\Touch\A6_touch.svg" />
+    <AvaloniaResource Include="..\..\touch\A7.svg" Link="Assets\Touch\A7.svg" /><AvaloniaResource Include="..\..\touch\A7_touch.svg" Link="Assets\Touch\A7_touch.svg" />
+    <AvaloniaResource Include="..\..\touch\A8.svg" Link="Assets\Touch\A8.svg" /><AvaloniaResource Include="..\..\touch\A8_touch.svg" Link="Assets\Touch\A8_touch.svg" />
+    <AvaloniaResource Include="..\..\touch\B1.svg" Link="Assets\Touch\B1.svg" /><AvaloniaResource Include="..\..\touch\B1_touch.svg" Link="Assets\Touch\B1_touch.svg" />
+    <AvaloniaResource Include="..\..\touch\B2.svg" Link="Assets\Touch\B2.svg" /><AvaloniaResource Include="..\..\touch\B2_touch.svg" Link="Assets\Touch\B2_touch.svg" />
+    <AvaloniaResource Include="..\..\touch\B3.svg" Link="Assets\Touch\B3.svg" /><AvaloniaResource Include="..\..\touch\B3_touch.svg" Link="Assets\Touch\B3_touch.svg" />
+    <AvaloniaResource Include="..\..\touch\B4.svg" Link="Assets\Touch\B4.svg" /><AvaloniaResource Include="..\..\touch\B4_touch.svg" Link="Assets\Touch\B4_touch.svg" />
+    <AvaloniaResource Include="..\..\touch\B5.svg" Link="Assets\Touch\B5.svg" /><AvaloniaResource Include="..\..\touch\B5_touch.svg" Link="Assets\Touch\B5_touch.svg" />
+    <AvaloniaResource Include="..\..\touch\B6.svg" Link="Assets\Touch\B6.svg" /><AvaloniaResource Include="..\..\touch\B6_touch.svg" Link="Assets\Touch\B6_touch.svg" />
+    <AvaloniaResource Include="..\..\touch\B7.svg" Link="Assets\Touch\B7.svg" /><AvaloniaResource Include="..\..\touch\B7_touch.svg" Link="Assets\Touch\B7_touch.svg" />
+    <AvaloniaResource Include="..\..\touch\B8.svg" Link="Assets\Touch\B8.svg" /><AvaloniaResource Include="..\..\touch\B8_touch.svg" Link="Assets\Touch\B8_touch.svg" />
+    <AvaloniaResource Include="..\..\touch\C1.svg" Link="Assets\Touch\C1.svg" /><AvaloniaResource Include="..\..\touch\C1_touch.svg" Link="Assets\Touch\C1_touch.svg" />
+    <AvaloniaResource Include="..\..\touch\C2.svg" Link="Assets\Touch\C2.svg" /><AvaloniaResource Include="..\..\touch\C2_touch.svg" Link="Assets\Touch\C2_touch.svg" />
+    <AvaloniaResource Include="..\..\touch\D1.svg" Link="Assets\Touch\D1.svg" /><AvaloniaResource Include="..\..\touch\D1_touch.svg" Link="Assets\Touch\D1_touch.svg" />
+    <AvaloniaResource Include="..\..\touch\D2.svg" Link="Assets\Touch\D2.svg" /><AvaloniaResource Include="..\..\touch\D2_touch.svg" Link="Assets\Touch\D2_touch.svg" />
+    <AvaloniaResource Include="..\..\touch\D3.svg" Link="Assets\Touch\D3.svg" /><AvaloniaResource Include="..\..\touch\D3_touch.svg" Link="Assets\Touch\D3_touch.svg" />
+    <AvaloniaResource Include="..\..\touch\D4.svg" Link="Assets\Touch\D4.svg" /><AvaloniaResource Include="..\..\touch\D4_touch.svg" Link="Assets\Touch\D4_touch.svg" />
+    <AvaloniaResource Include="..\..\touch\D5.svg" Link="Assets\Touch\D5.svg" /><AvaloniaResource Include="..\..\touch\D5_touch.svg" Link="Assets\Touch\D5_touch.svg" />
+    <AvaloniaResource Include="..\..\touch\D6.svg" Link="Assets\Touch\D6.svg" /><AvaloniaResource Include="..\..\touch\D6_touch.svg" Link="Assets\Touch\D6_touch.svg" />
+    <AvaloniaResource Include="..\..\touch\D7.svg" Link="Assets\Touch\D7.svg" /><AvaloniaResource Include="..\..\touch\D7_touch.svg" Link="Assets\Touch\D7_touch.svg" />
+    <AvaloniaResource Include="..\..\touch\D8.svg" Link="Assets\Touch\D8.svg" /><AvaloniaResource Include="..\..\touch\D8_touch.svg" Link="Assets\Touch\D8_touch.svg" />
+    <AvaloniaResource Include="..\..\touch\E1.svg" Link="Assets\Touch\E1.svg" /><AvaloniaResource Include="..\..\touch\E1_touch.svg" Link="Assets\Touch\E1_touch.svg" />
+    <AvaloniaResource Include="..\..\touch\E2.svg" Link="Assets\Touch\E2.svg" /><AvaloniaResource Include="..\..\touch\E2_touch.svg" Link="Assets\Touch\E2_touch.svg" />
+    <AvaloniaResource Include="..\..\touch\E3.svg" Link="Assets\Touch\E3.svg" /><AvaloniaResource Include="..\..\touch\E3_touch.svg" Link="Assets\Touch\E3_touch.svg" />
+    <AvaloniaResource Include="..\..\touch\E4.svg" Link="Assets\Touch\E4.svg" /><AvaloniaResource Include="..\..\touch\E4_touch.svg" Link="Assets\Touch\E4_touch.svg" />
+    <AvaloniaResource Include="..\..\touch\E5.svg" Link="Assets\Touch\E5.svg" /><AvaloniaResource Include="..\..\touch\E5_touch.svg" Link="Assets\Touch\E5_touch.svg" />
+    <AvaloniaResource Include="..\..\touch\E6.svg" Link="Assets\Touch\E6.svg" /><AvaloniaResource Include="..\..\touch\E6_touch.svg" Link="Assets\Touch\E6_touch.svg" />
+    <AvaloniaResource Include="..\..\touch\E7.svg" Link="Assets\Touch\E7.svg" /><AvaloniaResource Include="..\..\touch\E7_touch.svg" Link="Assets\Touch\E7_touch.svg" />
+    <AvaloniaResource Include="..\..\touch\E8.svg" Link="Assets\Touch\E8.svg" /><AvaloniaResource Include="..\..\touch\E8_touch.svg" Link="Assets\Touch\E8_touch.svg" />
+  </ItemGroup>
+</Project>

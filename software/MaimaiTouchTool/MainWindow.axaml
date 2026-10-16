@@ -1,0 +1,372 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:loc="clr-namespace:MaimaiTouchTool.Localization"
+        x:Class="MaimaiTouchTool.MainWindow" x:CompileBindings="False"
+        Width="1180" Height="820" MinWidth="1100" MinHeight="620"
+        Title="maimai Touch Tool">
+  <Window.Styles>
+    <Style Selector="TextBlock.heading"><Setter Property="FontSize" Value="22"/><Setter Property="FontWeight" Value="SemiBold"/></Style>
+    <Style Selector="TextBlock.section"><Setter Property="FontSize" Value="15"/><Setter Property="FontWeight" Value="SemiBold"/><Setter Property="Margin" Value="0,18,0,8"/></Style>
+    <Style Selector="Border.panel"><Setter Property="Background" Value="#20252B"/><Setter Property="BorderBrush" Value="#3A424B"/><Setter Property="BorderThickness" Value="1"/><Setter Property="CornerRadius" Value="6"/><Setter Property="Padding" Value="16"/></Style>
+    <Style Selector="Button.primary"><Setter Property="Background" Value="#D65A3A"/><Setter Property="Foreground" Value="White"/></Style>
+    <Style Selector="TextBox.editor"><Setter Property="MinWidth" Value="64"/><Setter Property="Width" Value="64"/><Setter Property="TextAlignment" Value="Center"/><Setter Property="HorizontalContentAlignment" Value="Center"/><Setter Property="VerticalContentAlignment" Value="Center"/></Style>
+    <Style Selector="TextBox.table-editor"><Setter Property="MinWidth" Value="52"/><Setter Property="Width" Value="58"/><Setter Property="Height" Value="28"/><Setter Property="Padding" Value="0"/><Setter Property="FontSize" Value="12"/><Setter Property="TextAlignment" Value="Center"/><Setter Property="HorizontalContentAlignment" Value="Center"/><Setter Property="VerticalContentAlignment" Value="Center"/></Style>
+    <Style Selector="TextBox.pill-editor"><Setter Property="MinWidth" Value="48"/><Setter Property="Width" Value="52"/><Setter Property="Height" Value="26"/><Setter Property="Padding" Value="0"/><Setter Property="FontSize" Value="12"/><Setter Property="TextAlignment" Value="Center"/><Setter Property="HorizontalContentAlignment" Value="Center"/><Setter Property="VerticalContentAlignment" Value="Center"/></Style>
+    <Style Selector="TextBlock.field-label"><Setter Property="Width" Value="86"/><Setter Property="Margin" Value="0,0,8,0"/><Setter Property="TextWrapping" Value="Wrap"/><Setter Property="FontSize" Value="11"/><Setter Property="VerticalAlignment" Value="Center"/></Style>
+    <Style Selector="TextBlock.board-title"><Setter Property="FontSize" Value="12"/><Setter Property="FontWeight" Value="SemiBold"/><Setter Property="Margin" Value="0,0,0,6"/></Style>
+    <Style Selector="Border.channel"><Setter Property="BorderBrush" Value="#39414A"/><Setter Property="BorderThickness" Value="1"/><Setter Property="Background" Value="#1A1E23"/></Style>
+    <Style Selector="Border.channel.touched"><Setter Property="BorderBrush" Value="#F59E0B"/><Setter Property="BorderThickness" Value="2"/><Setter Property="Background" Value="#3A2A1A"/></Style>
+    <Style Selector="Button.mini"><Setter Property="MinWidth" Value="24"/><Setter Property="Width" Value="24"/><Setter Property="Height" Value="26"/><Setter Property="Padding" Value="0"/><Setter Property="HorizontalContentAlignment" Value="Center"/><Setter Property="VerticalContentAlignment" Value="Center"/></Style>
+    <Style Selector="Button.mini PathIcon"><Setter Property="Width" Value="12"/><Setter Property="Height" Value="12"/><Setter Property="Foreground" Value="#E6EAF0"/></Style>
+    <Style Selector="Button.mini-wide"><Setter Property="Height" Value="26"/><Setter Property="Padding" Value="8,0"/><Setter Property="FontSize" Value="11"/><Setter Property="HorizontalContentAlignment" Value="Center"/><Setter Property="VerticalContentAlignment" Value="Center"/></Style>
+  </Window.Styles>
+  <Grid RowDefinitions="Auto,*,Auto" Margin="24">
+    <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,18">
+      <StackPanel Spacing="4"><TextBlock Classes="heading" Text="{DynamicResource App.Title}"/><TextBlock Foreground="#A9B1BA" Text="{DynamicResource App.Subtitle}" TextWrapping="Wrap"/></StackPanel>
+      <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" Margin="0,0,12,0">
+        <TextBlock VerticalAlignment="Center" FontSize="11" Foreground="#A9B1BA" Text="{DynamicResource Language}"/>
+        <ComboBox Width="130" ItemsSource="{Binding LanguageLabels, Source={x:Static loc:Localizer.Instance}}" SelectedItem="{Binding SelectedLabel, Source={x:Static loc:Localizer.Instance}}" VerticalAlignment="Center"/>
+      </StackPanel>
+      <Border Grid.Column="2" Classes="panel" Padding="12,8"><StackPanel Spacing="2"><TextBlock FontSize="11" Foreground="#A9B1BA" Text="{DynamicResource DeviceState}"/><TextBlock FontWeight="SemiBold" Text="{Binding StatusLabel}"/></StackPanel></Border>
+    </Grid>
+    <Grid Grid.Row="1" ColumnDefinitions="420*,Auto,680*">
+    <Border Grid.Column="0" Classes="panel" Padding="12" MinWidth="340" MaxWidth="850">
+      <Grid RowDefinitions="Auto,*" RowSpacing="10">
+        <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8">
+          <StackPanel Spacing="3" VerticalAlignment="Center"><TextBlock Classes="section" Margin="0" Text="{DynamicResource Live.Title}"/><TextBlock Foreground="#A9B1BA" FontSize="11" Text="{DynamicResource Live.Hint}" TextWrapping="Wrap"/></StackPanel>
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+            <ToggleSwitch IsChecked="{Binding IsGameModeActive, Mode=TwoWay}"
+                          IsEnabled="{Binding CanToggleGameMode}"
+                          OnContent="{DynamicResource Live.GameMode}"
+                          OffContent="{DynamicResource Live.GameMode}"
+                          ToolTip.Tip="{DynamicResource Live.GameModeTip}"/>
+            <TextBlock VerticalAlignment="Center" FontWeight="SemiBold" FontSize="11" Foreground="#F59E0B" Text="{Binding GameFrameRateLabel}" IsVisible="{Binding IsGameMode}"/>
+          </StackPanel>
+          <Button Grid.Column="2" Command="{Binding StartStreamCommand}" Classes="primary" Content="{DynamicResource Live.StartStream}"/>
+          <Button Grid.Column="3" Command="{Binding StopStreamCommand}" Content="{DynamicResource Live.Stop}"/>
+        </Grid>
+        <Border Grid.Row="1" Background="#090B0D" BorderBrush="#303740" BorderThickness="1" ClipToBounds="True">
+          <Viewbox Stretch="Uniform" StretchDirection="Both" HorizontalAlignment="Center" VerticalAlignment="Center">
+            <Canvas x:Name="TouchBoardCanvas" Width="960" Height="912" Background="#090B0D"/>
+          </Viewbox>
+        </Border>
+      </Grid>
+    </Border>
+    <GridSplitter Grid.Column="1" Width="8" Background="Transparent" ResizeDirection="Columns"/>
+    <TabControl Grid.Column="2" MinWidth="520">
+      <TabItem Header="{DynamicResource Tab.Config}">
+      <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+      <StackPanel Spacing="16">
+        <Border Classes="panel">
+          <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,*" RowDefinitions="Auto,Auto" ColumnSpacing="10" RowSpacing="10">
+            <TextBlock VerticalAlignment="Center" Text="{DynamicResource Config.SerialPort}"/>
+            <ComboBox Grid.Column="1" ItemsSource="{Binding Ports}" SelectedItem="{Binding SelectedPort}" IsEnabled="{Binding !IsConnected}"/>
+            <Button Grid.Column="2" Command="{Binding RefreshPortsCommand}" Content="{DynamicResource Config.RefreshPorts}" ToolTip.Tip="{DynamicResource Config.RefreshPortsTip}" IsEnabled="{Binding !IsConnected}"/>
+            <Button Grid.Column="3" Classes="primary" Command="{Binding ConnectCommand}" Content="{DynamicResource Config.Connect}" IsVisible="{Binding !IsConnected}"/>
+            <Button Grid.Column="3" Command="{Binding DisconnectCommand}" Content="{DynamicResource Config.Disconnect}" IsVisible="{Binding IsConnected}"/>
+            <Button Grid.Column="4" HorizontalAlignment="Left" Command="{Binding CancelConnectCommand}" Content="{DynamicResource Config.CancelConnect}" IsVisible="{Binding IsConnecting}"/>
+            <TextBlock Grid.Row="1" Grid.ColumnSpan="6" Foreground="#A9B1BA" Text="{Binding StatusMessage}" TextWrapping="Wrap"/>
+          </Grid>
+        </Border>
+
+        <Border Classes="panel" IsVisible="{Binding HasConflict}">
+          <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
+            <StackPanel Spacing="3"><TextBlock FontWeight="SemiBold" Text="{DynamicResource Config.ConflictTitle}"/><TextBlock Foreground="#D8B46A" Text="{Binding ConflictLabel}" TextWrapping="Wrap"/></StackPanel>
+            <Button Grid.Column="1" Command="{Binding UseDeviceCommand}" Content="{DynamicResource Config.UseDevice}" ToolTip.Tip="{DynamicResource Config.UseDeviceTip}"/>
+            <Button Grid.Column="2" Command="{Binding UseLocalCommand}" Content="{DynamicResource Config.StageLocal}" ToolTip.Tip="{DynamicResource Config.StageLocalTip}"/>
+          </Grid>
+        </Border>
+
+        <Border Classes="panel">
+          <StackPanel Spacing="10">
+            <StackPanel Spacing="3">
+              <TextBlock Classes="section" Margin="0" Text="{DynamicResource Config.BoardSettings}"/>
+              <TextBlock Foreground="#A9B1BA" Text="{DynamicResource Config.BoardSettingsHint}" TextWrapping="Wrap"/>
+            </StackPanel>
+
+            <Grid ColumnDefinitions="140,*,*,*,*,*,*" Margin="0,8,0,2">
+              <TextBlock FontWeight="SemiBold" Foreground="#A9B1BA" FontSize="12" VerticalAlignment="Center" Text="{DynamicResource Config.Table.Board}"/>
+              <TextBlock Grid.Column="1" HorizontalAlignment="Center" FontWeight="SemiBold" Foreground="#A9B1BA" FontSize="11" Text="{DynamicResource Config.Table.Base}" ToolTip.Tip="{DynamicResource Config.Table.BaseTip}"/>
+              <TextBlock Grid.Column="2" HorizontalAlignment="Center" FontWeight="SemiBold" Foreground="#A9B1BA" FontSize="11" Text="{DynamicResource Config.Table.SensOffset}" ToolTip.Tip="{DynamicResource Config.Table.SensOffsetTip}"/>
+              <TextBlock Grid.Column="3" HorizontalAlignment="Center" FontWeight="SemiBold" Foreground="#A9B1BA" FontSize="11" Text="{DynamicResource Config.Table.TouchDt}" ToolTip.Tip="{DynamicResource Config.Table.TouchDtTip}"/>
+              <TextBlock Grid.Column="4" HorizontalAlignment="Center" FontWeight="SemiBold" Foreground="#A9B1BA" FontSize="11" Text="{DynamicResource Config.Table.ReleaseDr}" ToolTip.Tip="{DynamicResource Config.Table.ReleaseDrTip}"/>
+              <TextBlock Grid.Column="5" HorizontalAlignment="Center" FontWeight="SemiBold" Foreground="#A9B1BA" FontSize="11" Text="{DynamicResource Config.Table.Sfi}" ToolTip.Tip="{DynamicResource Config.Table.SfiTip}"/>
+              <TextBlock Grid.Column="6" HorizontalAlignment="Center" FontWeight="SemiBold" Foreground="#A9B1BA" FontSize="11" Text="{DynamicResource Config.Table.Esi}" ToolTip.Tip="{DynamicResource Config.Table.EsiTip}"/>
+            </Grid>
+
+            <ItemsControl ItemsSource="{Binding Editor.Boards}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <Border BorderBrush="#353E4A" BorderThickness="0,1,0,0" Padding="0,6">
+                    <Grid ColumnDefinitions="140,*,*,*,*,*,*">
+                      <StackPanel VerticalAlignment="Center">
+                        <TextBlock FontWeight="SemiBold" FontSize="12" Text="{Binding BoardWithAddress}"/>
+                      </StackPanel>
+                      <TextBox Grid.Column="1" Classes="table-editor" HorizontalAlignment="Center" Text="{Binding BaseThreshold, Converter={StaticResource SafeIntConverter}, UpdateSourceTrigger=PropertyChanged}" ToolTip.Tip="{DynamicResource Config.BaseThresholdTip}"/>
+                      <TextBox Grid.Column="2" Classes="table-editor" HorizontalAlignment="Center" Text="{Binding SensOffset, Converter={StaticResource SafeIntConverter}, UpdateSourceTrigger=PropertyChanged}" ToolTip.Tip="{DynamicResource Config.SensOffsetTip}"/>
+                      <TextBox Grid.Column="3" Classes="table-editor" HorizontalAlignment="Center" Text="{Binding TouchDebounce, Converter={StaticResource SafeIntConverter}, UpdateSourceTrigger=PropertyChanged}" ToolTip.Tip="{DynamicResource Config.Table.TouchDtTip}"/>
+                      <TextBox Grid.Column="4" Classes="table-editor" HorizontalAlignment="Center" Text="{Binding ReleaseDebounce, Converter={StaticResource SafeIntConverter}, UpdateSourceTrigger=PropertyChanged}" ToolTip.Tip="{DynamicResource Config.Table.ReleaseDrTip}"/>
+                      <TextBox Grid.Column="5" Classes="table-editor" HorizontalAlignment="Center" Text="{Binding Sfi, Converter={StaticResource SafeIntConverter}, UpdateSourceTrigger=PropertyChanged}" ToolTip.Tip="{DynamicResource Config.Table.SfiTip}"/>
+                      <TextBox Grid.Column="6" Classes="table-editor" HorizontalAlignment="Center" Text="{Binding Esi, Converter={StaticResource SafeIntConverter}, UpdateSourceTrigger=PropertyChanged}" ToolTip.Tip="{DynamicResource Config.Table.EsiTip}"/>
+                    </Grid>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <TextBlock Margin="0,4,0,0" FontSize="11" Foreground="#7F8A95" TextWrapping="Wrap" Text="{DynamicResource Config.SfiEsiHint}"/>
+          </StackPanel>
+        </Border>
+
+        <Border Classes="panel">
+          <StackPanel Spacing="10">
+            <StackPanel Spacing="3">
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Classes="section" Margin="0" VerticalAlignment="Center" Text="{DynamicResource Config.ElectrodeOffsets}"/>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" PointerWheelChanged="OnStepWheel">
+                  <TextBlock VerticalAlignment="Center" FontSize="11" Foreground="#7F8A95" Text="{DynamicResource Config.StepLabel}"/>
+                  <Button Classes="mini" Command="{Binding StepDownCommand}" ToolTip.Tip="{DynamicResource Config.StepTip}">
+                    <PathIcon Data="M3,7.25 H13 V8.75 H3 Z"/>
+                  </Button>
+                  <TextBlock Width="24" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold" TextAlignment="Center" Text="{Binding Editor.Step}"/>
+                  <Button Classes="mini" Command="{Binding StepUpCommand}" ToolTip.Tip="{DynamicResource Config.StepTip}">
+                    <PathIcon Data="M7.25,3 H8.75 V7.25 H13 V8.75 H8.75 V13 H7.25 V8.75 H3 V7.25 H7.25 Z"/>
+                  </Button>
+                  <Button Classes="mini-wide" Command="{Binding ResetAllElectrodesCommand}">
+                    <TextBlock VerticalAlignment="Center" Text="{DynamicResource Config.ResetAll}"/>
+                  </Button>
+                </StackPanel>
+              </Grid>
+              <TextBlock Foreground="#A9B1BA" Text="{DynamicResource Config.ElectrodeHint}" TextWrapping="Wrap"/>
+            </StackPanel>
+
+            <Border Background="#161A1F" BorderBrush="#2C333B" BorderThickness="1" CornerRadius="4" Padding="10,6">
+              <StackPanel Spacing="4">
+                <TextBlock FontSize="11" Foreground="#7F8A95" TextWrapping="Wrap" Text="{DynamicResource Config.LegendHint}"/>
+                <Grid ColumnDefinitions="Auto,*,Auto">
+                  <TextBlock FontSize="11" FontWeight="SemiBold" Foreground="#39B0A6" VerticalAlignment="Center" Text="{DynamicResource Config.LegendSensitive}"/>
+                  <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="4" VerticalAlignment="Center">
+                    <Border Width="34" Height="14" CornerRadius="3" Background="#1E5A63"/>
+                    <Border Width="34" Height="14" CornerRadius="3" Background="#2A7E7D"/>
+                    <Border Width="34" Height="14" CornerRadius="3" Background="#3A424B"/>
+                    <Border Width="34" Height="14" CornerRadius="3" Background="#9E5A32"/>
+                    <Border Width="34" Height="14" CornerRadius="3" Background="#E0703A"/>
+                  </StackPanel>
+                  <TextBlock Grid.Column="2" FontSize="11" FontWeight="SemiBold" Foreground="#E0703A" VerticalAlignment="Center" Text="{DynamicResource Config.LegendDull}"/>
+                </Grid>
+              </StackPanel>
+            </Border>
+
+            <ItemsControl ItemsSource="{Binding Editor.Zones}" Margin="0,4,0,0">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <Border BorderBrush="#353E4A" BorderThickness="0,1,0,0" Padding="0,8">
+                    <Grid ColumnDefinitions="130,*" RowDefinitions="Auto">
+                      <StackPanel VerticalAlignment="Center" Spacing="4">
+                        <TextBlock FontWeight="SemiBold" FontSize="12" Foreground="#A9B1BA" Text="{Binding Name}"/>
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                          <Button Classes="mini" Command="{Binding DecreaseAllCommand}" ToolTip.Tip="{DynamicResource Config.ZoneNudgeTip}">
+                            <PathIcon Data="M3,7.25 H13 V8.75 H3 Z"/>
+                          </Button>
+                          <Button Classes="mini" Command="{Binding IncreaseAllCommand}" ToolTip.Tip="{DynamicResource Config.ZoneNudgeTip}">
+                            <PathIcon Data="M7.25,3 H8.75 V7.25 H13 V8.75 H8.75 V13 H7.25 V8.75 H3 V7.25 H7.25 Z"/>
+                          </Button>
+                          <Button Classes="mini-wide" Command="{Binding ResetAllCommand}">
+                            <TextBlock VerticalAlignment="Center" Text="{DynamicResource Config.ZoneReset}"/>
+                          </Button>
+                        </StackPanel>
+                      </StackPanel>
+                      <ItemsControl Grid.Column="1" ItemsSource="{Binding Electrodes}">
+                        <ItemsControl.ItemsPanel>
+                          <ItemsPanelTemplate>
+                            <WrapPanel Orientation="Horizontal"/>
+                          </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                          <DataTemplate>
+                            <Border Background="{Binding TintBrush}" BorderBrush="#353E4A" BorderThickness="1" CornerRadius="4" Margin="0,2,8,6" Padding="5,4" ToolTip.Tip="{Binding Tooltip}">
+                              <StackPanel Orientation="Horizontal" Spacing="3" VerticalAlignment="Center">
+                                <TextBlock FontWeight="Bold" FontSize="12" Foreground="#D8B46A" Width="22" TextAlignment="Center" VerticalAlignment="Center" Text="{Binding Label}"/>
+                                <Button Classes="mini" Command="{Binding DecreaseCommand}">
+                                  <PathIcon Data="M3,7.25 H13 V8.75 H3 Z"/>
+                                </Button>
+                                <TextBox Classes="pill-editor" VerticalAlignment="Center" Text="{Binding Offset, Converter={StaticResource SafeIntConverter}, UpdateSourceTrigger=PropertyChanged}"/>
+                                <Button Classes="mini" Command="{Binding IncreaseCommand}">
+                                  <PathIcon Data="M7.25,3 H8.75 V7.25 H13 V8.75 H8.75 V13 H7.25 V8.75 H3 V7.25 H7.25 Z"/>
+                                </Button>
+                              </StackPanel>
+                            </Border>
+                          </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                      </ItemsControl>
+                    </Grid>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+        </Border>
+      </StackPanel>
+      </ScrollViewer>
+      </TabItem>
+      <TabItem Header="{DynamicResource Tab.Calibration}">
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="8" Spacing="16">
+          <TextBlock Classes="heading" Text="{DynamicResource Cal.Title}"/>
+          <TextBlock Foreground="#D8B46A" Text="{DynamicResource Cal.Hint}" TextWrapping="Wrap"/>
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <StackPanel Spacing="6"><TextBlock Text="{Binding CalibrationLabel}" TextWrapping="Wrap"/><TextBlock FontSize="11" Foreground="#A9B1BA" Text="{Binding CalibrationDeadlineMs, StringFormat={}{0} ms}"/><ProgressBar Minimum="0" Maximum="1" Value="{Binding CalibrationProgress}" Height="8"/></StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8"><Button Classes="primary" Command="{Binding CalibrateCommand}" Content="{DynamicResource Cal.Start}"/><Button Command="{Binding CancelCalibrationCommand}" Content="{DynamicResource Cal.Cancel}"/></StackPanel>
+          </Grid>
+          <Border Classes="panel" IsVisible="{Binding HasCalibrationResult}">
+            <StackPanel Spacing="10">
+              <TextBlock Classes="section" Margin="0" Text="{DynamicResource Cal.ResultTitle}"/>
+              <TextBlock Text="{Binding CalibrationHeadline}" TextWrapping="Wrap"/>
+              <ItemsControl ItemsSource="{Binding CalibrationResults}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate>
+                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12" Margin="0,3">
+                      <TextBlock FontWeight="SemiBold" Width="64" Text="{Binding Label}"/>
+                      <TextBlock Grid.Column="1" Foreground="#A9B1BA" Text="{Binding Detail}"/>
+                      <TextBlock Grid.Column="2" FontSize="11" Foreground="#7F8A95" Text="{Binding ChannelLabel}"/>
+                    </Grid>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </Border>
+
+          <Border Classes="panel">
+            <StackPanel Spacing="12">
+              <StackPanel Spacing="3">
+                <TextBlock Classes="section" Margin="0" Text="{DynamicResource Guided.Title}"/>
+                <TextBlock Foreground="#A9B1BA" Text="{DynamicResource Guided.Hint}" TextWrapping="Wrap"/>
+              </StackPanel>
+
+              <Grid ColumnDefinitions="Auto,Auto,Auto,*" ColumnSpacing="10" IsVisible="{Binding ShowGuidedIntro}">
+                <TextBlock VerticalAlignment="Center" Text="{DynamicResource Guided.TriggerRatio}"/>
+                <TextBox Grid.Column="1" Classes="pill-editor" VerticalAlignment="Center" Text="{Binding GuidedTriggerPercent, Converter={StaticResource SafeIntConverter}, UpdateSourceTrigger=PropertyChanged}" ToolTip.Tip="{DynamicResource Guided.TriggerRatioTip}"/>
+                <Button Grid.Column="2" Classes="primary" Command="{Binding StartGuidedCommand}" Content="{DynamicResource Guided.Start}"/>
+                <TextBlock Grid.Column="3" VerticalAlignment="Center" FontSize="11" Foreground="#7F8A95" TextWrapping="Wrap" Text="{DynamicResource Guided.RangeHint}"/>
+              </Grid>
+
+              <StackPanel Spacing="8" IsVisible="{Binding IsGuidedRunning}">
+                <TextBlock Text="{Binding GuidedStepLabel}" TextWrapping="Wrap" FontWeight="SemiBold"/>
+                <ProgressBar Minimum="0" Maximum="1" Value="{Binding GuidedProgress}" Height="8"/>
+                <ProgressBar Minimum="0" Maximum="1" Value="{Binding GuidedKeyProgress}" Height="4" Foreground="#D8B46A"/>
+                <TextBlock FontSize="11" Foreground="#A9B1BA" Text="{Binding GuidedLiveDepthLabel}"/>
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <Button Command="{Binding SkipGuidedKeyCommand}" Content="{DynamicResource Guided.SkipKey}"/>
+                  <Button Command="{Binding FinishGuidedKeyCommand}" Content="{DynamicResource Guided.FinishKey}"/>
+                  <Button Command="{Binding CancelGuidedCommand}" Content="{DynamicResource Guided.Cancel}"/>
+                </StackPanel>
+              </StackPanel>
+
+              <StackPanel Spacing="10" IsVisible="{Binding HasGuidedResult}">
+                <TextBlock Text="{Binding GuidedHeadline}" TextWrapping="Wrap"/>
+                <TextBlock Classes="section" Margin="0" Text="{DynamicResource Guided.BoardTitle}"/>
+                <ItemsControl ItemsSource="{Binding GuidedBoards}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12" Margin="0,3">
+                        <TextBlock FontWeight="SemiBold" Width="64" Text="{Binding Label}"/>
+                        <TextBlock Grid.Column="1" Foreground="#A9B1BA" TextWrapping="Wrap" Text="{Binding Detail}"/>
+                        <CheckBox Grid.Column="2" IsChecked="{Binding Adopt}" Content="{DynamicResource Guided.Adopt}"/>
+                      </Grid>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <TextBlock Classes="section" Margin="0" Text="{DynamicResource Guided.KeyTitle}"/>
+                <ItemsControl ItemsSource="{Binding GuidedKeys}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <Grid ColumnDefinitions="Auto,76,*,Auto" ColumnSpacing="10" Margin="0,2">
+                        <CheckBox IsChecked="{Binding Adopt}" Content="{Binding Label}"/>
+                        <TextBlock Grid.Column="1" Foreground="#7F8A95" FontSize="11" VerticalAlignment="Center" Text="{Binding DepthLabel}"/>
+                        <TextBlock Grid.Column="2" Foreground="#A9B1BA" FontSize="11" VerticalAlignment="Center" TextWrapping="Wrap" Text="{Binding Detail}"/>
+                        <TextBlock Grid.Column="3" FontSize="11" VerticalAlignment="Center" Text="{Binding StatusLabel}"/>
+                      </Grid>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <Button Classes="primary" Command="{Binding ApplyGuidedResultCommand}" Content="{DynamicResource Guided.ApplyToEditor}"/>
+                  <Button Command="{Binding DiscardGuidedResultCommand}" Content="{DynamicResource Guided.Discard}"/>
+                </StackPanel>
+              </StackPanel>
+            </StackPanel>
+          </Border>
+        </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+      <TabItem Header="{DynamicResource Tab.Telemetry}">
+        <Grid Margin="8" RowDefinitions="Auto,Auto,*,Auto" RowSpacing="12">
+          <Grid ColumnDefinitions="*">
+            <StackPanel Spacing="3"><TextBlock Classes="section" Margin="0" Text="{DynamicResource Tele.Title}"/><TextBlock Foreground="#A9B1BA" Text="{DynamicResource Tele.Hint}" TextWrapping="Wrap"/></StackPanel>
+          </Grid>
+          <Grid Grid.Row="1" ColumnDefinitions="*,*,*,*,*" ColumnSpacing="8">
+            <Border Classes="panel" Padding="10,8"><StackPanel Spacing="2"><TextBlock FontSize="11" Foreground="#A9B1BA" Text="{DynamicResource Tele.HeaderTelemetry}"/><TextBlock FontWeight="SemiBold" Text="{Binding Telemetry.HealthLabel}"/><TextBlock FontSize="11" Text="{Binding Telemetry.LastError}" TextWrapping="Wrap"/></StackPanel></Border>
+            <Border Grid.Column="1" Classes="panel" Padding="10,8"><StackPanel Spacing="2"><TextBlock FontSize="11" Foreground="#A9B1BA" Text="{DynamicResource Tele.HeaderRate}"/><TextBlock FontWeight="SemiBold" Text="{Binding Telemetry.ActualRateLabel}"/><TextBlock FontSize="11" Text="{Binding Telemetry.AcceptedRateLabel}"/></StackPanel></Border>
+            <Border Grid.Column="2" Classes="panel" Padding="10,8"><StackPanel Spacing="2"><TextBlock FontSize="11" Foreground="#A9B1BA" Text="{DynamicResource Tele.HeaderSequence}"/><TextBlock FontWeight="SemiBold" Text="{Binding Telemetry.SequenceLabel}"/><TextBlock FontSize="11" Text="{DynamicResource Tele.SequenceHint}"/></StackPanel></Border>
+            <Border Grid.Column="3" Classes="panel" Padding="10,8"><StackPanel Spacing="2"><TextBlock FontSize="11" Foreground="#A9B1BA" Text="{DynamicResource Tele.HeaderI2c}"/><TextBlock FontWeight="SemiBold" Text="{Binding Telemetry.I2cErrors}"/><TextBlock FontSize="11" Text="{DynamicResource Tele.I2cHint}"/></StackPanel></Border>
+            <Border Grid.Column="4" Classes="panel" Padding="10,8"><StackPanel Spacing="2"><TextBlock FontSize="11" Foreground="#A9B1BA" Text="{DynamicResource Tele.HeaderRequested}"/><TextBlock FontWeight="SemiBold" Text="{Binding Telemetry.RequestedRateHz, StringFormat={}{0} Hz}"/><TextBlock FontSize="11" Text="{DynamicResource Tele.RequestedHint}"/></StackPanel></Border>
+          </Grid>
+          <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <ItemsControl ItemsSource="{Binding Telemetry.Chips}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <Border Classes="panel" Margin="0,0,0,10" Padding="10">
+                    <StackPanel Spacing="8">
+                      <Grid ColumnDefinitions="*,Auto"><TextBlock FontWeight="SemiBold" Text="{Binding Label}"/><TextBlock Grid.Column="1" Foreground="#A9B1BA" Text="{Binding StatusLabel}"/></Grid>
+                      <ItemsControl ItemsSource="{Binding Channels}">
+                        <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel Orientation="Horizontal" ItemWidth="190" ItemHeight="96"/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                          <DataTemplate>
+                            <Border Classes="channel" Classes.touched="{Binding IsTouched}" CornerRadius="4" Margin="3" Padding="6" ClipToBounds="True">
+                              <Grid RowDefinitions="Auto,Auto,Auto">
+                                <Grid ColumnDefinitions="*,Auto"><TextBlock FontWeight="SemiBold" Text="{Binding ChannelLabel}"/><TextBlock Grid.Column="1" Foreground="#D8B46A" Text="{Binding KeyLabel}"/></Grid>
+                                <Grid Grid.Row="1" Height="12" Margin="0,4,0,2">
+                                  <ProgressBar Minimum="0" Maximum="1023" Value="{Binding Filtered}" ShowProgressText="False" Height="12" MinWidth="0" MinHeight="0" Foreground="#3B82F6" Background="#2A313A" ToolTip.Tip="Filtered"/>
+                                  <Border Width="2" Height="12" Background="#F59E0B" HorizontalAlignment="Left" IsHitTestVisible="False" Margin="{Binding ThresholdValue, Converter={StaticResource ThresholdMarkerConverter}, ConverterParameter=170}" ToolTip.Tip="Touch threshold"/>
+                                </Grid>
+                                <Grid Grid.Row="2" ColumnDefinitions="*,Auto"><TextBlock FontSize="11" Foreground="#A9B1BA" Text="{Binding Filtered, StringFormat=F {0}}"/><TextBlock Grid.Column="1" FontSize="11" Foreground="#A9B1BA" Text="{Binding Baseline, StringFormat=B {0}}"/></Grid>
+                              </Grid>
+                            </Border>
+                          </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                      </ItemsControl>
+                    </StackPanel>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
+          <Border Grid.Row="3" Classes="panel" Padding="10">
+            <Grid RowDefinitions="Auto,*"><TextBlock FontWeight="SemiBold" Text="{DynamicResource Tele.EventLog}"/><ScrollViewer Grid.Row="1" Height="96" VerticalScrollBarVisibility="Auto"><ItemsControl ItemsSource="{Binding Telemetry.Log}"><ItemsControl.ItemTemplate><DataTemplate><TextBlock FontSize="11" TextWrapping="Wrap" Text="{Binding Timestamp, StringFormat={}{0:HH:mm:ss.fff}}  [{Binding Level}] {Binding Message}"/></DataTemplate></ItemsControl.ItemTemplate></ItemsControl></ScrollViewer></Grid>
+          </Border>
+        </Grid>
+      </TabItem>
+    </TabControl>
+    </Grid>
+    <Border Grid.Row="2" Classes="panel" Margin="0,18,0,0" Padding="12">
+      <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto" ColumnSpacing="10">
+        <StackPanel Spacing="2"><TextBlock FontWeight="SemiBold" Text="{Binding DirtyLabel}"/><TextBlock FontSize="11" Foreground="#A9B1BA" Text="{DynamicResource Footer.ApplyHint}"/></StackPanel>
+        <Button Grid.Column="1" Command="{Binding RestoreDefaultsCommand}" Content="{DynamicResource Footer.RestoreDefaults}"/>
+        <Button Grid.Column="2" Command="{Binding ReadbackCommand}" Content="{DynamicResource Footer.ReadApplied}" ToolTip.Tip="{DynamicResource Footer.ReadAppliedTip}"/>
+        <Button Grid.Column="3" Classes="primary" Command="{Binding ApplyCommand}" Content="{DynamicResource Footer.Apply}"/>
+        <Button Grid.Column="4" Command="{Binding SaveCommand}" Content="{DynamicResource Footer.Save}" ToolTip.Tip="{DynamicResource Footer.SaveTip}"/>
+      </Grid>
+    </Border>
+    <Border x:Name="ToastOverlay" Grid.RowSpan="3" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,26" Padding="16,10"
+            Background="#303740" BorderBrush="#D65A3A" BorderThickness="1" CornerRadius="4"
+            IsVisible="{Binding IsToastVisible}" Opacity="{Binding ToastOpacity}"
+            RenderTransform="translate(0px, 24px)">
+      <Border.Transitions>
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.22"/>
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.22"/>
+        </Transitions>
+      </Border.Transitions>
+      <TextBlock Text="{Binding ToastMessage}"/>
+    </Border>
+  </Grid>
+</Window>

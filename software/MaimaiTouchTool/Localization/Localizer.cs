@@ -1,0 +1,587 @@
+using System.ComponentModel;
+using Avalonia.Controls;
+
+namespace MaimaiTouchTool.Localization;
+
+/// <summary>
+/// 极简运行时多语言。
+/// XAML 用 {DynamicResource Key}（资源由本类持有的 ResourceDictionary 提供，切换语言时原地更新 → 动态资源自动刷新）；
+/// 代码用 Localizer.Instance["Key"]；依赖语言的 VM 属性订阅 LanguageChanged 重抛。
+/// </summary>
+public sealed class Localizer : INotifyPropertyChanged
+{
+    public static readonly (string Code, string Label)[] Available =
+    [
+        ("en", "English"),
+        ("zh-Hans", "简体中文"),
+    ];
+
+    // Instance 在文件末尾声明（在 En/Zh 之后），保证静态初始化顺序正确。
+    public event PropertyChangedEventHandler? PropertyChanged;
+    public event EventHandler? LanguageChanged;
+
+    private IReadOnlyDictionary<string, string> Table => language == "zh-Hans" ? Zh : En;
+    private string language = "en";
+
+    private Localizer() { RebuildResources(); }
+
+    public string this[string key] => Table.TryGetValue(key, out var value) ? value : key;
+
+    /// <summary>提供给 XAML {DynamicResource} 的资源字典；切换语言时原地更新其值。</summary>
+    public ResourceDictionary Resources { get; } = new();
+
+    private void RebuildResources()
+    {
+        foreach (var pair in Table) Resources[pair.Key] = pair.Value;
+    }
+
+    public string Language => language;
+
+    public string SelectedLanguage
+    {
+        get => language;
+        set => SetLanguage(value);
+    }
+
+    // 供界面下拉框直接绑定（显示友好名，内部映射到语言代码）
+    public string SelectedLabel
+    {
+        get => language == "zh-Hans" ? "简体中文" : "English";
+        set => SetLanguage(value == "简体中文" ? "zh-Hans" : "en");
+    }
+
+    public string[] LanguageCodes { get; } = Available.Select(x => x.Code).ToArray();
+    public string[] LanguageLabels { get; } = Available.Select(x => x.Label).ToArray();
+
+    public void SetLanguage(string code)
+    {
+        var normalized = (code ?? "en").StartsWith("zh", StringComparison.OrdinalIgnoreCase) ? "zh-Hans" : "en";
+        if (normalized == language) return;
+        language = normalized;
+        RebuildResources();
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs("Item[]"));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Language)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SelectedLanguage)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SelectedLabel)));
+        LanguageChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private static readonly Dictionary<string, string> En = new()
+    {
+        // Window / header
+        ["Title"] = "maimai Touch Tool",
+        ["App.Title"] = "Controller configuration",
+        ["App.Subtitle"] = "Configure the applied runtime profile, then explicitly save it to EEPROM and the local mirror.",
+        ["DeviceState"] = "DEVICE STATE",
+        ["Language"] = "Language",
+        ["Toast.InvalidNumber"] = "Please enter a valid number",
+
+        // Tabs
+        ["Tab.Config"] = "Configuration",
+        ["Tab.Calibration"] = "Calibration",
+        ["Tab.LiveTest"] = "Live test",
+        ["Tab.Telemetry"] = "Telemetry",
+
+        // Configuration tab
+        ["Config.SerialPort"] = "Serial port",
+        ["Config.RefreshPorts"] = "Refresh ports",
+        ["Config.RefreshPortsTip"] = "Re-enumerate available serial ports",
+        ["Config.Connect"] = "Connect",
+        ["Config.Disconnect"] = "Disconnect",
+        ["Config.ConflictTitle"] = "Local JSON conflict",
+        ["Config.UseDevice"] = "Use device",
+        ["Config.UseDeviceTip"] = "Discard the local mirror and keep the device applied configuration",
+        ["Config.StageLocal"] = "Stage local",
+        ["Config.StageLocalTip"] = "Stage local JSON; Apply will verify it before it can be saved",
+        ["Config.BoardSettings"] = "Board response settings",
+        ["Config.BoardSettingsHint"] = "Threshold values are filtered-count deltas. Debounce is raw MPR121 DT/DR; effective samples are value + 1. SFI and ESI control sampling speed.",
+        ["Config.BoardN"] = "Board {0}",
+        ["Config.BaseThreshold"] = "Base threshold (counts)",
+        ["Config.BaseThresholdTip"] = "Filtered-count delta, 1 to 255",
+        ["Config.SensOffset"] = "Sensitivity offset (counts)",
+        ["Config.SensOffsetTip"] = "Signed filtered-count delta, -127 to 127",
+        ["Config.TouchDt"] = "Touch DT (0-7)",
+        ["Config.ReleaseDr"] = "Release DR (0-7)",
+        ["Config.Sfi"] = "SFI (0-3)",
+        ["Config.Esi"] = "ESI (0-7)",
+        ["Config.SfiEsiHint"] = "SFI: 0=4, 1=6, 2=10, 3=18 samples  |  ESI: 0=2 ms, 1=4 ms ... 7=256 ms",
+        ["Config.Table.Board"] = "Board / Chip",
+        ["Config.Table.Base"] = "Base (1-255)",
+        ["Config.Table.BaseTip"] = "Base touch threshold (filtered delta counts, 1-255)",
+        ["Config.Table.SensOffset"] = "Sens offset (-127-127)",
+        ["Config.Table.SensOffsetTip"] = "Board sensitivity offset delta (-127 to 127)",
+        ["Config.Table.TouchDt"] = "Touch DT (0-7)",
+        ["Config.Table.TouchDtTip"] = "Touch debounce filter sample count (0-7)",
+        ["Config.Table.ReleaseDr"] = "Release DR (0-7)",
+        ["Config.Table.ReleaseDrTip"] = "Release debounce filter sample count (0-7)",
+        ["Config.Table.Sfi"] = "SFI (0-3)",
+        ["Config.Table.SfiTip"] = "Second filter iterations (0-3)",
+        ["Config.Table.Esi"] = "ESI (0-7)",
+        ["Config.Table.EsiTip"] = "Electrode sample interval (0-7)",
+        ["Config.ElectrodeOffsets"] = "Single-key sensitivity trim (34 keys)",
+        ["Config.ElectrodeHint"] = "Per-key sensitivity offset. Lower = more sensitive, higher = less sensitive. The chip resolution is 4, so step in multiples of 4. This only affects this key; the board settings above affect all 12 keys on that board.",
+        ["Config.Zone.A"] = "Zone A • Outer ring",
+        ["Config.Zone.B"] = "Zone B • Inner ring",
+        ["Config.Zone.C"] = "Zone C • Center",
+        ["Config.Zone.D"] = "Zone D • Outer edge",
+        ["Config.Zone.E"] = "Zone E • Mid ring",
+        ["Config.StepLabel"] = "Step",
+        ["Config.StepTip"] = "Nudge step for the +/- buttons. Shift+scroll over this row to change it.",
+        ["Config.ResetAll"] = "Reset all",
+        ["Config.ZoneReset"] = "Reset",
+        ["Config.ZoneNudgeTip"] = "Shift the whole zone by the current step",
+        ["Config.LegendHint"] = "Each key's colour shows how far it is trimmed from the neutral value (0).",
+        ["Config.LegendSensitive"] = "◀ More sensitive",
+        ["Config.LegendDull"] = "Less sensitive ▶",
+        ["Config.Sens.High"] = "Very sensitive",
+        ["Config.Sens.Slight"] = "Slightly sensitive",
+        ["Config.Sens.Neutral"] = "Neutral",
+        ["Config.Sens.SlightDull"] = "Slightly dull",
+        ["Config.Sens.Dull"] = "Dull",
+
+        // Calibration tab
+        ["Cal.Title"] = "Panel calibration",
+        ["Cal.Hint"] = "Remove hands and objects from all keys, then start calibration. Calibration changes applied RAM thresholds only; Save remains a separate EEPROM + JSON operation.",
+        ["Cal.Start"] = "Start calibration",
+        ["Cal.Cancel"] = "Cancel",
+
+        // Live test tab
+        ["Live.Title"] = "34-key touch test",
+        ["Live.Hint"] = "Live state is decoded from the 34-bit debug bitmap.",
+        ["Live.StartStream"] = "Start stream",
+        ["Live.Stop"] = "Stop",
+        ["Live.GameMode"] = "Game mode",
+        ["Live.GameModeTip"] = "Switch the device to GAME mode and read its raw game frames at the real (unthrottled) rate",
+        ["Live.StopGame"] = "Stop game",
+        ["Live.GameRate"] = "{0:0} Hz (game)",
+
+        // Telemetry tab
+        ["Tele.Title"] = "48-channel debug telemetry",
+        ["Tele.Hint"] = "Filtered and baseline values are shown in physical chip/port order. The rate is measured from received frames.",
+        ["Tele.Start100"] = "Start 100 Hz",
+        ["Tele.Start100Tip"] = "Request the protocol default; the displayed rate is measured, never assumed",
+        ["Tele.Stop"] = "Stop",
+        ["Tele.HeaderTelemetry"] = "TELEMETRY",
+        ["Tele.HeaderRate"] = "RATE",
+        ["Tele.HeaderSequence"] = "SEQUENCE",
+        ["Tele.HeaderI2c"] = "I2C ERRORS",
+        ["Tele.HeaderRequested"] = "REQUESTED",
+        ["Tele.SequenceHint"] = "Frames use device sequence semantics",
+        ["Tele.I2cHint"] = "Cumulative device count",
+        ["Tele.RequestedHint"] = "Default protocol request",
+        ["Tele.EventLog"] = "Event and error log",
+
+        // Footer
+        ["Footer.ApplyHint"] = "Apply = SET_CFG, APPLY_CFG, then GET_CFG readback. Save = SAVE_CFG after a verified apply.",
+        ["Footer.RestoreDefaults"] = "Restore defaults",
+        ["Footer.ReadApplied"] = "Read applied",
+        ["Footer.ReadAppliedTip"] = "Discard staged edits and load GET_CFG",
+        ["Footer.Apply"] = "Apply & verify",
+        ["Footer.Save"] = "Save EEPROM + JSON",
+        ["Footer.SaveTip"] = "Only saves an applied, readback-verified configuration",
+
+        // Connection status labels
+        ["Status.Disconnected"] = "Disconnected",
+        ["Status.Connecting"] = "Connecting",
+        ["Status.Connected"] = "Connected / configuration mode",
+        ["Status.Error"] = "Error",
+        ["Status.Unsupported"] = "Unsupported device",
+
+        // Dirty / conflict
+        ["Dirty.Staged"] = "Staged changes not applied",
+        ["Dirty.None"] = "No staged changes",
+        ["Conflict.Label"] = "Local JSON differs from device; choose a source.",
+
+        // Status messages
+        ["Msg.SelectPort"] = "Select a serial port to begin.",
+        ["Msg.NoPorts"] = "No serial ports found.",
+        ["Msg.Opening"] = "Opening serial port and requesting VERSION...",
+        ["Msg.Connected"] = "Connected and applied configuration loaded.",
+        ["Msg.ConnectedConflict"] = "Connected; resolve the local JSON conflict before applying.",
+        ["Msg.Unsupported"] = "Device protocol capabilities are not supported.",
+        ["Msg.DeviceSelected"] = "Device configuration selected.",
+        ["Msg.Applying"] = "Applying staged configuration (SET_CFG, APPLY_CFG, GET_CFG)...",
+        ["Msg.Applied"] = "Applied and verified by device readback. Save persists it to EEPROM and JSON.",
+        ["Msg.ApplyFailed"] = "Apply failed; no success was reported: ",
+        ["Msg.Saving"] = "Saving applied configuration to EEPROM...",
+        ["Msg.Saved"] = "Saved applied configuration to EEPROM and JSON mirror.",
+        ["Msg.SaveFailed"] = "Save failed; no success was reported: ",
+        ["Msg.EepromSavedJsonFailed"] = "EEPROM saved, but the JSON mirror failed: ",
+        ["Msg.ReadingConfig"] = "Reading applied configuration from device...",
+        ["Msg.ReadbackLoaded"] = "Readback loaded; staged edits were discarded.",
+        ["Msg.ReadbackFailed"] = "Readback failed: ",
+        ["Msg.LocalStaged"] = "Local JSON staged. Apply it to the device to verify before saving.",
+        ["Msg.LocalStageFailed"] = "Local JSON could not be staged: ",
+        ["Msg.DefaultsStaged"] = "Protocol defaults staged. Apply to verify them on the device.",
+        ["Msg.StreamStarting"] = "Debug telemetry stream starting; rate will be measured from frames.",
+        ["Msg.StreamUnavailable"] = "Live test streaming is unavailable while disconnected.",
+        ["Msg.GameStarting"] = "Entering GAME mode; waiting for raw game frames...",
+        ["Msg.GameRunning"] = "GAME mode streaming; touch state follows the raw game frames.",
+        ["Msg.GameStopped"] = "GAME mode stopped; returning to configuration mode.",
+        ["Msg.GameFailed"] = "GAME mode failed; no success was reported: ",
+        ["Msg.GameStarting"] = "Switching the device to GAME mode...",
+        ["Msg.GameRunning"] = "GAME mode active; reading raw 9-byte game frames.",
+        ["Msg.GameStopped"] = "GAME mode stopped; device returned to configuration mode.",
+        ["Msg.GameFailed"] = "GAME mode failed; no success was reported: ",
+        ["Msg.TelemetryStopped"] = "Telemetry stopped; no success was reported: ",
+        ["Msg.TelemetryFailed"] = "Telemetry failed; no success was reported: ",
+        ["Msg.MalformedFrame"] = "Malformed DEBUG_FRAME: ",
+        ["Msg.Timeout"] = "Operation timed out or was cancelled.",
+        ["Msg.Disconnected"] = "Serial device disconnected.",
+        ["Msg.ConnectCancelled"] = "Connection cancelled.",
+        ["Msg.ConnectTimedOut"] = "Connection timed out; the port did not respond.",
+        ["Msg.CancellingConnect"] = "Cancelling connection...",
+        ["Config.CancelConnect"] = "Cancel",
+        ["Msg.Disconnecting"] = "Disconnecting from device...",
+        ["Msg.DisconnectedManual"] = "Disconnected from device.",
+        ["Msg.CalibrationReadbackFailed"] = "Calibration applied, but the configuration read-back failed: ",
+        ["Toast.InvalidNumber"] = "Please enter a valid number.",
+
+        // Calibration labels
+        ["Cal.Ready"] = "Ready. Calibration changes applied thresholds in RAM only; use Save after verification to persist them.",
+        ["Cal.Unavailable"] = "Calibration is unavailable on this transport.",
+        ["Cal.NoTouch"] = "Place no objects on the panel. The device is checking the untouched baseline...",
+        ["Cal.Cancelling"] = "Cancelling calibration and restoring the previous applied state...",
+        ["Cal.Succeeded"] = "Calibration succeeded and is applied in RAM. Review the test panel, then Save to persist it.",
+        ["Cal.FailedReason"] = "Calibration failed ({0}); previous applied values remain active.",
+        ["Cal.Cancelled"] = "Calibration cancelled; no calibration result was applied.",
+        ["Cal.TimedOut"] = "Calibration timed out; no calibration result was applied.",
+        ["Cal.Failed"] = "Calibration failed; no success was reported: ",
+        ["Cal.ResultTitle"] = "Calibration result",
+        ["Cal.ResultHeadline"] = "{0}; {1}.{2}",
+        ["Cal.ResultBoardsRaised"] = "{0} board(s) raised: {1}",
+        ["Cal.ResultNoBoardChange"] = "No board threshold change",
+        ["Cal.ResultBaseline"] = "{0} channels calibrated, baselines {1}-{2}",
+        ["Cal.ResultNoBaseline"] = "No baseline reported",
+        ["Cal.ResultBoardDetail"] = "Base threshold {0} → {1} · {2}/{3} mapped channels changed",
+        ["Cal.ResultRaised"] = "raised",
+        ["Cal.ResultUnchanged"] = "unchanged",
+        ["Cal.ResultReadbackFailed"] = "(configuration read-back failed; the summary uses CAL_DONE only)",
+        ["Cal.ResultFailed"] = "Calibration failed ({0})",
+        ["Cal.ResultFailedChannels"] = "{0} · affected channels: {1}",
+        ["Cal.LogPrefix"] = "Calibration:",
+
+        // Guided sensitivity adjustment (tools-side, reuses the debug stream)
+        ["Guided.Title"] = "Guided sensitivity adjustment",
+        ["Guided.Hint"] = "Measures each key's real press depth while you hold it, then recomputes per-key offsets and board parameters (base threshold, sens offset, DT/DR). It only writes the editor; use Apply and Save afterwards.",
+        ["Guided.TriggerRatio"] = "Trigger ratio (%)",
+        ["Guided.TriggerRatioTip"] = "A key triggers once you press this share of the measured depth. Lower = more sensitive. Range 20-90.",
+        ["Guided.RangeHint"] = "You will be asked to press each key 3 times. Keys can be skipped.",
+        ["Guided.Start"] = "Start guided adjustment",
+        ["Guided.BaselineStep"] = "Do not touch the panel. Measuring the idle baseline... {0}%",
+        ["Guided.KeyStep"] = "Press and hold {0}, then release.  (press {1} of {2})",
+        ["Guided.Finishing"] = "Finishing up...",
+        ["Guided.LiveDepth"] = "Current press depth: {0:0} counts",
+        ["Guided.SkipKey"] = "Skip this key",
+        ["Guided.FinishKey"] = "Finish this key",
+        ["Guided.Cancel"] = "Cancel",
+        ["Guided.Running"] = "Guided adjustment running. Follow the on-screen prompts.",
+        ["Guided.Done"] = "Measurement complete. Review the preview below.",
+        ["Guided.Cancelled"] = "Guided adjustment cancelled.",
+        ["Guided.NoTargets"] = "No keys available for guided adjustment.",
+        ["Guided.Headline"] = "Measured {0}/{1} keys ({2} could not be used), trigger ratio {3}%.",
+        ["Guided.BoardTitle"] = "Board parameters",
+        ["Guided.KeyTitle"] = "Per-key offsets",
+        ["Guided.Adopt"] = "Adopt",
+        ["Guided.ApplyToEditor"] = "Apply to editor",
+        ["Guided.Discard"] = "Discard",
+        ["Guided.Applied"] = "Guided results written to the editor. Review, then Apply and Save.",
+        ["Guided.LogPrefix"] = "Guided:",
+        ["Guided.NoKeysMeasured"] = "No keys measured on this board; left unchanged",
+        ["Guided.BoardThresholdDetail"] = "base {0}→{1}, sens {2}→{3}",
+        ["Guided.BoardDebounceDetail"] = "DT {0}→{1}, DR {2}→{3}",
+        ["Guided.KeyDetail"] = "offset {0}→{1}, target {2}",
+        ["Guided.StatusMeasured"] = "OK",
+        ["Guided.StatusSkipped"] = "Skipped",
+        ["Guided.StatusTimeout"] = "Timed out",
+        ["Guided.StatusInsufficient"] = "Depth too small",
+        ["Guided.StatusOverflow"] = "Out of range",
+
+        // Telemetry health / labels
+        ["Tele.Healthy"] = "Healthy telemetry",
+        ["Tele.Degraded"] = "Degraded telemetry",
+        ["Tele.Starting"] = "Starting stream",
+        ["Tele.Error"] = "Telemetry error",
+        ["Tele.Disconnected"] = "Disconnected",
+        ["Tele.Idle"] = "Telemetry idle",
+        ["Tele.RateNotMeasured"] = "Rate not measured",
+        ["Tele.RateActual"] = "{0:0.0} Hz actual",
+        ["Tele.NoGaps"] = "No reported sequence gaps",
+        ["Tele.Gaps"] = "{0} sequence gaps",
+        ["Tele.AcceptedPending"] = "Accepted rate pending",
+        ["Tele.Accepted"] = "Accepted {0} Hz",
+        ["Tele.StartLog"] = "Starting debug stream; requested {0} Hz.",
+        ["Tele.AcceptedLog"] = "Stream accepted at {0} Hz; device reports {1} Hz actual.",
+        ["Tele.DroppedLog"] = "Dropped {0} debug frame(s) before sequence {1}.",
+        ["Tele.Stopped"] = "Debug stream stopped.",
+        ["Tele.DeviceDisconnected"] = "Serial device disconnected; telemetry is no longer healthy.",
+        ["Tele.Touch"] = "TOUCH",
+        ["Tele.ChannelIdle"] = "idle",
+        ["Tele.Online"] = "online",
+        ["Tele.Check"] = "check",
+        ["Tele.Board"] = "Board {0}",
+        ["Tele.StatusOnline"] = "online / baseline valid",
+        ["Tele.StatusOnlineShort"] = "online",
+        ["Tele.StatusOffline"] = "offline",
+        ["Tele.StatusNotInit"] = "not initialized",
+        ["Tele.StatusBaselinePending"] = "baseline pending",
+        ["Tele.StatusI2cError"] = "I2C error",
+        ["Tele.StatusDegraded"] = "degraded",
+    };
+
+    private static readonly Dictionary<string, string> Zh = new()
+    {
+        ["Title"] = "maimai 触控配置工具",
+        ["App.Title"] = "控制器配置",
+        ["App.Subtitle"] = "配置当前应用的运行参数，然后显式保存到 EEPROM 与本地镜像。",
+        ["DeviceState"] = "设备状态",
+        ["Language"] = "语言",
+        ["Toast.InvalidNumber"] = "请输入有效数字",
+
+        ["Tab.Config"] = "配置",
+        ["Tab.Calibration"] = "校准",
+        ["Tab.LiveTest"] = "实时测试",
+        ["Tab.Telemetry"] = "调试遥测",
+
+        ["Config.SerialPort"] = "串口",
+        ["Config.RefreshPorts"] = "刷新串口",
+        ["Config.RefreshPortsTip"] = "重新枚举可用串口",
+        ["Config.Connect"] = "连接",
+        ["Config.Disconnect"] = "断开连接",
+        ["Config.ConflictTitle"] = "本地 JSON 冲突",
+        ["Config.UseDevice"] = "用设备配置",
+        ["Config.UseDeviceTip"] = "丢弃本地镜像，保留设备当前已应用配置",
+        ["Config.StageLocal"] = "载入本地",
+        ["Config.StageLocalTip"] = "载入本地 JSON；应用时会先校验，通过后才能保存",
+        ["Config.BoardSettings"] = "板级响应设置",
+        ["Config.BoardSettingsHint"] = "阈值单位为滤波计数差。去抖为 MPR121 原始 DT/DR，实际样本数为值 + 1。SFI 与 ESI 控制采样速度。",
+        ["Config.BoardN"] = "板 {0}",
+        ["Config.BaseThreshold"] = "基础阈值（counts）",
+        ["Config.BaseThresholdTip"] = "滤波计数差，1 到 255",
+        ["Config.SensOffset"] = "灵敏度偏移（counts）",
+        ["Config.SensOffsetTip"] = "有符号滤波计数差，-127 到 127",
+        ["Config.TouchDt"] = "触摸 DT (0-7)",
+        ["Config.ReleaseDr"] = "释放 DR (0-7)",
+        ["Config.Sfi"] = "SFI (0-3)",
+        ["Config.Esi"] = "ESI (0-7)",
+        ["Config.SfiEsiHint"] = "SFI：0=4，1=6，2=10，3=18 样本  |  ESI：0=2 ms，1=4 ms … 7=256 ms",
+        ["Config.Table.Board"] = "板卡 / 芯片",
+        ["Config.Table.Base"] = "基础阈值 (1-255)",
+        ["Config.Table.BaseTip"] = "基础触摸阈值（滤波计数差，1-255）",
+        ["Config.Table.SensOffset"] = "灵敏度偏移 (-127-127)",
+        ["Config.Table.SensOffsetTip"] = "板级灵敏度偏移差值（-127 到 127）",
+        ["Config.Table.TouchDt"] = "触摸 DT (0-7)",
+        ["Config.Table.TouchDtTip"] = "触摸去抖滤波采样次数（0-7）",
+        ["Config.Table.ReleaseDr"] = "释放 DR (0-7)",
+        ["Config.Table.ReleaseDrTip"] = "释放去抖滤波采样次数（0-7）",
+        ["Config.Table.Sfi"] = "SFI (0-3)",
+        ["Config.Table.SfiTip"] = "二次滤波迭代样本数（0-3）",
+        ["Config.Table.Esi"] = "ESI (0-7)",
+        ["Config.Table.EsiTip"] = "电极采样周期（0-7）",
+        ["Config.ElectrodeOffsets"] = "单键灵敏度微调（34 键）",
+        ["Config.ElectrodeHint"] = "每个键独立的灵敏度偏移。数值越小越灵敏，越大越迟钝；芯片分辨率为 4，建议以 4 为步进。此栏只影响该按键；上方板级参数影响整块板的 12 个键。",
+        ["Config.Zone.A"] = "A 环 • 外圈",
+        ["Config.Zone.B"] = "B 环 • 中圈",
+        ["Config.Zone.C"] = "C 环 • 中心",
+        ["Config.Zone.D"] = "D 环 • 外缘",
+        ["Config.Zone.E"] = "E 环 • 内圈",
+        ["Config.StepLabel"] = "步进",
+        ["Config.StepTip"] = "+/- 按钮的步进值。在该行上 Shift+滚轮 可切换。",
+        ["Config.ResetAll"] = "全部归零",
+        ["Config.ZoneReset"] = "归零",
+        ["Config.ZoneNudgeTip"] = "按当前步进整体调整该环",
+        ["Config.LegendHint"] = "边框颜色表示该键相对中性值（0）的偏移程度。",
+        ["Config.LegendSensitive"] = "◀ 更灵敏",
+        ["Config.LegendDull"] = "更迟钝 ▶",
+        ["Config.Sens.High"] = "高灵敏",
+        ["Config.Sens.Slight"] = "略灵敏",
+        ["Config.Sens.Neutral"] = "基准",
+        ["Config.Sens.SlightDull"] = "略迟钝",
+        ["Config.Sens.Dull"] = "迟钝",
+
+        ["Cal.Title"] = "面板校准",
+        ["Cal.Hint"] = "请移开所有键上的手和物体，然后开始校准。校准只修改内存中已应用的阈值；保存仍是独立的 EEPROM + JSON 操作。",
+        ["Cal.Start"] = "开始校准",
+        ["Cal.Cancel"] = "取消",
+
+        ["Live.Title"] = "34 键触摸测试",
+        ["Live.Hint"] = "实时状态由 34 位调试位图解码得到。",
+        ["Live.StartStream"] = "开始流",
+        ["Live.Stop"] = "停止",
+        ["Live.GameMode"] = "游戏模式",
+        ["Live.GameModeTip"] = "让设备切到 GAME 模式，按游戏真实（不限速）速率读取原始游戏帧",
+        ["Live.StopGame"] = "停止游戏",
+        ["Live.GameRate"] = "{0:0} Hz（游戏）",
+        ["Live.GameMode"] = "游戏模式",
+        ["Live.GameModeTip"] = "让设备切到 GAME 模式，按真实（不受限）速率直接读取原始游戏帧",
+        ["Live.StopGame"] = "停止游戏",
+        ["Live.GameRate"] = "{0:0} Hz（游戏）",
+
+        ["Tele.Title"] = "48 通道调试遥测",
+        ["Tele.Hint"] = "滤波值与基线按芯片/端口物理顺序显示。速率由收到的帧实测得出。",
+        ["Tele.Start100"] = "开始 100 Hz",
+        ["Tele.Start100Tip"] = "请求协议默认速率；显示的速率是实测值，绝不假设",
+        ["Tele.Stop"] = "停止",
+        ["Tele.HeaderTelemetry"] = "遥测",
+        ["Tele.HeaderRate"] = "速率",
+        ["Tele.HeaderSequence"] = "序号",
+        ["Tele.HeaderI2c"] = "I2C 错误",
+        ["Tele.HeaderRequested"] = "请求值",
+        ["Tele.SequenceHint"] = "帧使用设备序号语义",
+        ["Tele.I2cHint"] = "设备累计计数",
+        ["Tele.RequestedHint"] = "协议默认请求值",
+        ["Tele.EventLog"] = "事件与错误日志",
+
+        ["Footer.ApplyHint"] = "应用 = SET_CFG、APPLY_CFG，再 GET_CFG 读回。保存 = 校验通过应用后 SAVE_CFG。",
+        ["Footer.RestoreDefaults"] = "恢复默认",
+        ["Footer.ReadApplied"] = "读取已应用",
+        ["Footer.ReadAppliedTip"] = "丢弃暂存修改并加载 GET_CFG",
+        ["Footer.Apply"] = "应用并校验",
+        ["Footer.Save"] = "保存 EEPROM + JSON",
+        ["Footer.SaveTip"] = "只保存已应用且读回校验通过的配置",
+
+        ["Status.Disconnected"] = "未连接",
+        ["Status.Connecting"] = "连接中",
+        ["Status.Connected"] = "已连接 / 配置模式",
+        ["Status.Error"] = "错误",
+        ["Status.Unsupported"] = "不支持的设备",
+
+        ["Dirty.Staged"] = "有暂存修改尚未应用",
+        ["Dirty.None"] = "无暂存修改",
+        ["Conflict.Label"] = "本地 JSON 与设备不一致；请选择一方。",
+
+        ["Msg.SelectPort"] = "请选择串口后开始。",
+        ["Msg.NoPorts"] = "未找到串口。",
+        ["Msg.Opening"] = "正在打开串口并请求 VERSION...",
+        ["Msg.Connected"] = "已连接，并加载了设备当前应用配置。",
+        ["Msg.ConnectedConflict"] = "已连接；应用前请先解决本地 JSON 冲突。",
+        ["Msg.Unsupported"] = "设备协议能力不受支持。",
+        ["Msg.DeviceSelected"] = "已选择设备配置。",
+        ["Msg.Applying"] = "正在应用暂存配置（SET_CFG、APPLY_CFG、GET_CFG）...",
+        ["Msg.Applied"] = "已应用并经设备读回校验。保存会将其写入 EEPROM 与 JSON。",
+        ["Msg.ApplyFailed"] = "应用失败；未报告成功：",
+        ["Msg.Saving"] = "正在将已应用配置保存到 EEPROM...",
+        ["Msg.Saved"] = "已将已应用配置保存到 EEPROM 与 JSON 镜像。",
+        ["Msg.SaveFailed"] = "保存失败；未报告成功：",
+        ["Msg.EepromSavedJsonFailed"] = "EEPROM 已保存，但 JSON 镜像失败：",
+        ["Msg.ReadingConfig"] = "正在从设备读取已应用配置...",
+        ["Msg.ReadbackLoaded"] = "读回完成；暂存修改已丢弃。",
+        ["Msg.ReadbackFailed"] = "读回失败：",
+        ["Msg.LocalStaged"] = "已载入本地 JSON。先应用到设备校验，再保存。",
+        ["Msg.LocalStageFailed"] = "无法载入本地 JSON：",
+        ["Msg.DefaultsStaged"] = "已载入协议默认值。应用到设备以校验。",
+        ["Msg.StreamStarting"] = "调试遥测流正在启动；速率将由帧实测。",
+        ["Msg.StreamUnavailable"] = "未连接时无法进行实时测试流。",
+        ["Msg.GameStarting"] = "正在让设备进入 GAME 模式；等待原始游戏帧...",
+        ["Msg.GameRunning"] = "GAME 模式运行中；触摸状态跟随原始游戏帧刷新。",
+        ["Msg.GameStopped"] = "GAME 模式已停止；正在返回配置模式。",
+        ["Msg.GameFailed"] = "GAME 模式失败；未报告成功：",
+        ["Msg.TelemetryStopped"] = "遥测已停止；未报告成功：",
+        ["Msg.TelemetryFailed"] = "遥测失败；未报告成功：",
+        ["Msg.MalformedFrame"] = "DEBUG_FRAME 格式错误：",
+        ["Msg.Timeout"] = "操作超时或被取消。",
+        ["Msg.Disconnected"] = "串口设备已断开。",
+        ["Msg.ConnectCancelled"] = "连接已取消。",
+        ["Msg.ConnectTimedOut"] = "连接超时；串口无响应。",
+        ["Msg.CancellingConnect"] = "正在取消连接...",
+        ["Config.CancelConnect"] = "取消",
+        ["Msg.Disconnecting"] = "正在断开设备连接...",
+        ["Msg.DisconnectedManual"] = "已断开与设备的连接。",
+        ["Msg.CalibrationReadbackFailed"] = "校准已应用，但配置读回失败：",
+        ["Toast.InvalidNumber"] = "请输入有效的数字。",
+
+        ["Cal.Ready"] = "就绪。校准只修改内存中的已应用阈值；校验后请用保存来持久化。",
+        ["Cal.Unavailable"] = "当前传输方式不支持校准。",
+        ["Cal.NoTouch"] = "请勿在面板上放置任何物体。设备正在检查未触碰基线...",
+        ["Cal.Cancelling"] = "正在取消校准并恢复之前的已应用状态...",
+        ["Cal.Succeeded"] = "校准成功并已应用到内存。请查看测试面板，然后保存以持久化。",
+        ["Cal.FailedReason"] = "校准失败（{0}）；之前的已应用值仍然有效。",
+        ["Cal.Cancelled"] = "校准已取消；未应用任何校准结果。",
+        ["Cal.TimedOut"] = "校准超时；未应用任何校准结果。",
+        ["Cal.Failed"] = "校准失败；未报告成功：",
+        ["Cal.ResultTitle"] = "校准结果",
+        ["Cal.ResultHeadline"] = "{0}；{1}。{2}",
+        ["Cal.ResultBoardsRaised"] = "{0} 块板阈值上调：{1}",
+        ["Cal.ResultNoBoardChange"] = "板级阈值无变化",
+        ["Cal.ResultBaseline"] = "{0} 个通道已校准，基线 {1}-{2}",
+        ["Cal.ResultNoBaseline"] = "未上报基线",
+        ["Cal.ResultBoardDetail"] = "基础阈值 {0} → {1} · 已映射通道 {2}/{3} 发生变化",
+        ["Cal.ResultRaised"] = "已上调",
+        ["Cal.ResultUnchanged"] = "无变化",
+        ["Cal.ResultReadbackFailed"] = "（配置读回失败；摘要仅依据 CAL_DONE）",
+        ["Cal.ResultFailed"] = "校准失败（{0}）",
+        ["Cal.ResultFailedChannels"] = "{0} · 相关通道：{1}",
+        ["Cal.LogPrefix"] = "校准：",
+
+        // 引导式灵敏度调整（工具侧，复用调试流）
+        ["Guided.Title"] = "引导式灵敏度调整",
+        ["Guided.Hint"] = "在你按住每个键时测量真实按下深度，再重新计算每键偏移与板级参数（基础阈值、灵敏度偏移、DT/DR）。只写入编辑器，之后请用 应用 和 保存。",
+        ["Guided.TriggerRatio"] = "触发比例（%）",
+        ["Guided.TriggerRatioTip"] = "按下达到所测深度的该比例即触发。数值越小越灵敏。范围 20-90。",
+        ["Guided.RangeHint"] = "将引导你每个键按 3 次，可跳过任意键。",
+        ["Guided.Start"] = "开始引导式调整",
+        ["Guided.BaselineStep"] = "请勿触碰面板，正在采集静止基线... {0}%",
+        ["Guided.KeyStep"] = "请按住 {0}，保持片刻后松开。（第 {1}/{2} 次）",
+        ["Guided.Finishing"] = "即将完成...",
+        ["Guided.LiveDepth"] = "当前按下深度：{0:0} 计数",
+        ["Guided.SkipKey"] = "跳过此键",
+        ["Guided.FinishKey"] = "结束此键",
+        ["Guided.Cancel"] = "取消",
+        ["Guided.Running"] = "引导式调整进行中，请按屏幕提示操作。",
+        ["Guided.Done"] = "测量完成，请查看下方预览。",
+        ["Guided.Cancelled"] = "引导式调整已取消。",
+        ["Guided.NoTargets"] = "没有可用于引导式调整的按键。",
+        ["Guided.Headline"] = "已测 {0}/{1} 个键（{2} 个不可用），触发比例 {3}%。",
+        ["Guided.BoardTitle"] = "板级参数",
+        ["Guided.KeyTitle"] = "逐键偏移",
+        ["Guided.Adopt"] = "采纳",
+        ["Guided.ApplyToEditor"] = "应用到编辑器",
+        ["Guided.Discard"] = "丢弃",
+        ["Guided.Applied"] = "引导式结果已写入编辑器。请检查后 应用 并 保存。",
+        ["Guided.LogPrefix"] = "引导式：",
+        ["Guided.NoKeysMeasured"] = "该板未测到任何键，保持不变",
+        ["Guided.BoardThresholdDetail"] = "基础 {0}→{1}，灵敏度 {2}→{3}",
+        ["Guided.BoardDebounceDetail"] = "DT {0}→{1}，DR {2}→{3}",
+        ["Guided.KeyDetail"] = "偏移 {0}→{1}，目标 {2}",
+        ["Guided.StatusMeasured"] = "正常",
+        ["Guided.StatusSkipped"] = "已跳过",
+        ["Guided.StatusTimeout"] = "超时",
+        ["Guided.StatusInsufficient"] = "深度不足",
+        ["Guided.StatusOverflow"] = "超出范围",
+
+        ["Tele.Healthy"] = "遥测正常",
+        ["Tele.Degraded"] = "遥测降级",
+        ["Tele.Starting"] = "流启动中",
+        ["Tele.Error"] = "遥测错误",
+        ["Tele.Disconnected"] = "已断开",
+        ["Tele.Idle"] = "遥测空闲",
+        ["Tele.RateNotMeasured"] = "速率未测得",
+        ["Tele.RateActual"] = "实测 {0:0.0} Hz",
+        ["Tele.NoGaps"] = "无序号缺口",
+        ["Tele.Gaps"] = "{0} 处序号缺口",
+        ["Tele.AcceptedPending"] = "接受速率待定",
+        ["Tele.Accepted"] = "已接受 {0} Hz",
+        ["Tele.StartLog"] = "开始调试流；请求 {0} Hz。",
+        ["Tele.AcceptedLog"] = "流已按 {0} Hz 接受；设备上报实际 {1} Hz。",
+        ["Tele.DroppedLog"] = "在序号 {1} 之前丢弃了 {0} 个调试帧。",
+        ["Tele.Stopped"] = "调试流已停止。",
+        ["Tele.DeviceDisconnected"] = "串口设备已断开；遥测不再正常。",
+        ["Tele.Touch"] = "触摸",
+        ["Tele.ChannelIdle"] = "空闲",
+        ["Tele.Online"] = "在线",
+        ["Tele.Check"] = "检查",
+        ["Tele.Board"] = "板 {0}",
+        ["Tele.StatusOnline"] = "在线 / 基线有效",
+        ["Tele.StatusOnlineShort"] = "在线",
+        ["Tele.StatusOffline"] = "离线",
+        ["Tele.StatusNotInit"] = "未初始化",
+        ["Tele.StatusBaselinePending"] = "基线待定",
+        ["Tele.StatusI2cError"] = "I2C 错误",
+        ["Tele.StatusDegraded"] = "降级",
+    };
+
+    // 放在 En/Zh 之后：静态字段初始化按文本顺序执行，Instance 的构造会用到 Available/En/Zh。
+    public static Localizer Instance { get; } = Create();
+
+    private static Localizer Create() => new();
+}
