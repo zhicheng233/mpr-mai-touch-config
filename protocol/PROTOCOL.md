@@ -1,16 +1,19 @@
 # maimai Touch Controller Protocol
 
-Status: Phase 0 contract, protocol version 1.0. This document is the byte-level
-source of truth for the ATmega32U4 firmware and the desktop tool. The USB CDC
-serial port is single-owner: the game and the tool must not use it at the same
-time.
+Status: Phase 0 contract, protocol version 1.1. This document is the byte-level
+source of truth for the firmware and the desktop tool. The USB CDC serial port
+is single-owner: the game and the tool must not use it at the same time.
+
+Protocol 1.1 adds the configurable key mapping (config schema 2, 93-byte
+config blob). It is backward compatible for the legacy game output; the tool
+requires the version-1.1 capability bit described in section 5.2.
 
 ## 1. Conventions
 
 - A byte is written as `0xNN`. Byte offsets are zero-based.
 - All multi-byte integers are little-endian unless a field says otherwise.
 - `u8`, `i8`, `u16`, `u32` are unsigned/signed integers of exactly that width.
-- The protocol version is `major=1`, `minor=0` for this contract. A device must
+- The protocol version is `major=1`, `minor=1` for this contract. A device must
   reject a frame with an unsupported major version. A newer minor version is
   accepted only when the type and payload length are known; unknown fields are
   not implicitly accepted.
@@ -27,7 +30,7 @@ Every new-protocol frame has this layout:
 |---:|---:|---|---|
 | 0 | 1 | sync0 | `0xAA` |
 | 1 | 1 | sync1 | `0x55` |
-| 2 | 1 | version | `0x10` for protocol 1.0 (`major << 4 | minor`) |
+| 2 | 1 | version | `0x11` for protocol 1.1 (`major << 4 | minor`) |
 | 3 | 1 | type | Request, response, event, or debug type |
 | 4 | 2 | seq | Little-endian request sequence number |
 | 6 | 2 | len | Little-endian payload length, `0..256` |
@@ -222,12 +225,19 @@ for chunk = 0..6:
     value >>= 5
 ```
 
-Equivalently, `key[i]` is bit `33-i` of the 34-bit value, and output byte
+`key[i]` is bit `33-i` of the 34-bit value, and output byte
 `1+q` contains value bits `5q..5q+4`, least-significant chunk first. Byte 7's
 top two bits are zero. This output is binary bytes, not printable base64.
 
-The new firmware's game bit source is its software filtered/baseline hysteresis
-state machine only. It must not combine `touched()` output with that state.
+The framer always emits `key[0..33]` in the fixed
+`A1..A8, B1..B8, C1..C2, D1..D8, E1..E8` order, so remapping a key changes which
+physical channel drives `key[i]`, never the frame layout. Each `key[i]` is taken
+from the MPR121 hardware touch status (`TOUCHSTATUS`, registers `0x00`/`0x01`)
+of the chip/channel named by `keymap[i]` in the applied config; the firmware
+relies on the MPR121's own threshold and debounce logic for the raw touch bits.
+The filtered/baseline software hysteresis path is used for debug telemetry and
+calibration, not to derive the game bit. A device must not combine hardware
+touch status with the software state for the same key.
 
 ## 5. New request and response types
 
@@ -241,7 +251,7 @@ events also copy the originating request sequence in their frame header.
 | `0x02` | tool -> firmware | ENTER_CFG | 0 bytes |
 | `0x03` | tool -> firmware | EXIT_CFG | 0 bytes |
 | `0x10` | tool -> firmware | GET_CFG | 0 bytes |
-| `0x11` | tool -> firmware | SET_CFG | 59-byte config blob |
+| `0x11` | tool -> firmware | SET_CFG | 93-byte config blob |
 | `0x12` | tool -> firmware | SAVE_CFG | 0 bytes |
 | `0x13` | tool -> firmware | APPLY_CFG | 0 bytes |
 | `0x20` | tool -> firmware | CALIBRATE | 3 bytes |
@@ -271,7 +281,7 @@ Every ACK payload is exactly:
 `ENTER_CFG`, `EXIT_CFG`, `SET_CFG`, `APPLY_CFG`, `SAVE_CFG`, and
 `STREAM_STOP` have no operation-specific result, so their ACK length is 4.
 `VERSION` uses response type ACK with the VERSION result below. `GET_CFG` uses
-an ACK whose result is the 59-byte config blob. `STREAM_START` result is
+an ACK whose result is the 93-byte config blob. `STREAM_START` result is
 `accepted_rate_hz:u16` then `actual_rate_hz:u16` (both little-endian), for an
 ACK length of 8. `CALIBRATE` result is `calibration_deadline_ms:u32`
 (little-endian), for an ACK length of 8; it is followed by `CAL_DONE`.
@@ -282,7 +292,7 @@ For implementation and codec tests, the complete response payload lengths are:
 |---|---:|---:|
 | VERSION | `0x80` | 20 (`4 + 16`) |
 | ENTER_CFG, EXIT_CFG, SET_CFG, APPLY_CFG, SAVE_CFG, STREAM_STOP | `0x80` | 4 |
-| GET_CFG | `0x80` | 63 (`4 + 59`) |
+| GET_CFG | `0x80` | 97 (`4 + 93`) |
 | CALIBRATE | `0x80` | 8 (`4 + 4`) |
 | STREAM_START | `0x80` | 8 (`4 + 4`) |
 | Any error | `0x7F` | 4 |
@@ -297,7 +307,7 @@ The VERSION request is empty. Its ACK result is exactly 16 bytes:
 | Offset in result | Size | Field |
 |---:|---:|---|
 | 0 | 1 | protocol major (`1`) |
-| 1 | 1 | protocol minor (`0`) |
+| 1 | 1 | protocol minor (`1`) |
 | 2 | 1 | firmware major |
 | 3 | 1 | firmware minor |
 | 4 | 1 | firmware patch |
@@ -311,20 +321,31 @@ The VERSION request is empty. Its ACK result is exactly 16 bytes:
 
 The v1 capability bits are bit 0 GET/SET/APPLY/SAVE, bit 1 calibration, bit 2
 debug streaming, bit 3 dual-slot EEPROM, and bits 4..31 zero. A USB serial
-number is the tool's device identity when present. ATmega32U4 does not provide
-a guaranteed unique hardware identifier in this contract; when bit 0 is clear,
-the tool keys its local JSON by the selected USB endpoint and must warn that it
-is not portable across host ports.
+number is the tool's device identity when present. SAMD21 (XIAO) provides a
+unique USB serial; ATmega32U4 does not provide a guaranteed unique hardware
+identifier in this contract, so when bit 0 of byte 15 is clear the tool keys its
+local JSON by the selected USB endpoint and must warn that it is not portable
+across host ports.
+
+The protocol-1.1 capability bits add bit 4, which means the firmware supports
+the configurable key mapping: config schema 2, the 93-byte config blob, and
+`SET_CFG` accepting 93-byte payloads. A tool that needs mapping must clear
+bit 4 and refuse to connect with a clear "firmware too old" message rather than
+send a 93-byte `SET_CFG` that an older firmware would reject with
+`ERROR(BAD_LENGTH)`. Bits 5..31 remain zero. Because the mapping only changes
+how the game output is assembled, a device that reports bit 4 set is still
+bit-for-bit compatible with the legacy game protocol in section 4.
 
 ### 5.3 Configuration blob and semantics
 
-The 59-byte config blob used by SET_CFG and GET_CFG is:
+The 93-byte config blob used by SET_CFG and GET_CFG is:
 
 | Offset | Size | Field |
 |---:|---:|---|
-| 0 | 1 | config schema (`1`) |
+| 0 | 1 | config schema (`2`) |
 | 1 | 24 | `board[4]`, six bytes each |
 | 25 | 34 | `electrode[34]`, one signed byte each |
+| 59 | 34 | `keymap[34]`, one packed byte each |
 
 Each board record is:
 
@@ -338,19 +359,38 @@ Each board record is:
 | 5 | 1 | `esi` | MPR121 ESI, `0..7`, period `2^ESI` ms |
 
 Each electrode offset is signed `i8` filtered-count delta, range `-127..127`,
-in the 34-key order in section 4.1. An implementation must reject a config
-schema other than 1 or any out-of-range field. Final threshold arithmetic is
-always saturated by the rules below; a sum that needs saturation is not by
-itself a validation failure. Rejection leaves staged, applied, and persisted
-configurations unchanged.
+in the 34-key order in section 4.1. `electrode[i]` is always key-indexed
+(A1..E8), independent of the key map below.
 
-The v1 default config uses `baseThreshold=20`, `sensOffset=0`,
+Each `keymap[i]` byte is a packed `(board << 4) | channel`, with `board` in
+`0..3` and `channel` in `0..11` (the port index on that chip). The high nibble is
+the board, the low nibble is the channel, so valid bytes are `0..47` (`0x00` to
+`0x2F`). Key `i` in the section-4.1 order reads its game bit from the chip and
+channel named by `keymap[i]`. The default `keymap` is exactly the reference
+wiring in section 8, so a device that has never been reconfigured produces the
+golden vectors in section 8 byte-for-byte. `electrode[i]` and `keymap[i]` are
+paired: the per-key offset applies to whichever channel `keymap[i]` selects.
+
+An implementation must reject a config schema other than 2, any out-of-range
+field, and any `keymap` in which a `board`/`channel` pair is invalid or the 34
+entries are not all distinct (each channel can belong to only one key). Across
+schema 2, all 48 channels are still sampled, but only the 34 channels named by
+`keymap` are eligible for game bits; the remaining channels have no electrode
+config byte and use board values plus offset zero. Rejection leaves staged,
+applied, and persisted configurations unchanged. Final threshold arithmetic is
+always saturated by the rules below; a sum that needs saturation is not by
+itself a validation failure.
+
+The default config uses `baseThreshold=20`, `sensOffset=0`,
 `touchDebounce=1`, `releaseDebounce=1`, `sfi=2`, and `esi=0` on all four
-boards. Its 34 electrode offsets are the `Legacy offset` values in section 8.
-These defaults preserve the reference tuning as the starting point; the new
+boards. Its 34 electrode offsets are the `Legacy offset` values in section 8,
+and its 34 `keymap` bytes are the `Chip`/`Port` columns in the same order. This
+keeps the reference tuning and wiring as the starting point; the new
 filtered/baseline decision path remains the sole source of game bits.
 
-For mapped key `i` on board `b`, the software threshold delta is:
+For key `i`, let `b = keymap[i].board` and `c = keymap[i].channel`, and let
+`baseline10`/`filtered10` be the 10-bit values of that channel. The software
+threshold delta is:
 
 ```text
 touch_delta[i] = clamp(baseThreshold[b] + sensOffset[b] + electrode[i], 1, 1023)
@@ -370,17 +410,19 @@ register value left-shifted by two and therefore has four filtered-count
 quantization.
 
 All 48 channels (four chips, ports 0..11) are enabled for sampling, baseline
-tracking, calibration, and debug diagnostics. Only the 34 mapped channels are
-eligible for game bits. Unmapped channels have no electrode config byte and use
-board values plus offset zero; they never affect game output.
+tracking, calibration, and debug diagnostics. Only the 34 channels named by
+`keymap` are eligible for game bits. Each channel with no key uses board values
+plus offset zero; it never affects game output.
 
 SET_CFG validates and stores the entire blob in staged RAM only. APPLY_CFG
 validates hardware feasibility, then atomically replaces the complete applied
 RAM configuration; it never writes EEPROM. If any board/channel application
-fails, the previous applied configuration remains wholly active. SAVE_CFG
-writes only the most recently applied configuration and never staged-only data.
-GET_CFG returns the applied configuration, not staged or persisted data. The
-ACK flags expose staged dirtiness and applied-versus-persisted difference.
+fails, the previous applied configuration remains wholly active. Changing solely
+`keymap` reassigns which physical channel each game bit reads; it never rewrites
+the legacy 9-byte game framing. SAVE_CFG writes only the most recently applied
+configuration and never staged-only data. GET_CFG returns the applied
+configuration, not staged or persisted data. The ACK flags expose staged
+dirtiness and applied-versus-persisted difference.
 
 ### 5.4 Calibration
 
@@ -432,8 +474,8 @@ are `0=none`, `1=timeout`, `2=touch_detected`, `3=noisy`, `4=hardware_missing`,
 
 `touch_threshold` is the final per-channel touch threshold delta in filtered
 10-bit counts after calibration, board settings, electrode offsets, and
-clamping. Its 48 entries use the physical channel order above; unmapped
-channels use board settings with zero electrode offset.
+clamping. Its 48 entries use the physical channel order above; channels with no
+key use board settings with zero electrode offset.
 
 ### 5.5 Debug stream
 
@@ -510,19 +552,23 @@ slot 1 at address 128. A slot is never a direct C struct dump. The record is:
 | 0 | 2 | magic `0x4D41`, little-endian (`41 4D`) |
 | 2 | 1 | storage schema `1` |
 | 3 | 1 | committed marker `0xA5` |
-| 4 | 2 | record length, little-endian; `69` bytes through the config blob |
+| 4 | 2 | record length, little-endian; `103` bytes through the config blob |
 | 6 | 4 | monotonically increasing generation, little-endian |
-| 10 | 59 | config blob from section 5.3 |
-| 69 | 2 | CRC-16/CCITT over offsets 0..2 and 4..68, little-endian; commit marker excluded |
-| 71..127 | 57 | reserved, written `0xFF`, ignored |
+| 10 | 93 | config blob from section 5.3 |
+| 103 | 2 | CRC-16/CCITT over offsets 0..2 and 4..102, little-endian; commit marker excluded |
+| 105..127 | 23 | reserved, written `0xFF`, ignored |
 
-The record length is 69 because it covers the ten-byte prefix through the
-59-byte config blob: `2 + 1 + 1 + 2 + 4 + 59 = 69`, followed by two CRC bytes.
+The record length is 103 because it covers the ten-byte prefix through the
+93-byte config blob: `2 + 1 + 1 + 2 + 4 + 93 = 103`, followed by two CRC bytes.
 The commit marker is excluded from the CRC because it is written last. A slot
 is valid only when magic, schema, committed marker, exact length, config
-schema/ranges, and CRC all validate. The newest valid generation wins; equal
-generations prefer slot 0. Blank/corrupt/incompatible EEPROM causes RAM
-defaults to load and does not write EEPROM automatically.
+schema/ranges (including the key-map uniqueness rule), and CRC all validate. A
+record whose length is not 103 (for example a 69-byte schema-1 record written by
+older firmware) is invalid; the firmware then loads RAM defaults and reports the
+persisted configuration as absent rather than migrating in place. The newest
+valid generation wins; equal generations prefer slot 0.
+Blank/corrupt/incompatible EEPROM causes RAM defaults to load and does not write
+EEPROM automatically.
 When no valid persisted slot exists, the persisted configuration is `absent`
 and the applied-versus-persisted ACK flag is set until a successful SAVE_CFG.
 
@@ -535,18 +581,25 @@ committed new slot. SAVE_CFG rate limiting and EEPROM endurance policy are
 implementation requirements; SAVE_CFG must never implicitly run on SET_CFG or
 APPLY_CFG.
 
-The tool's JSON mirror stores the same schema-1 config fields, the device
-identity rules from VERSION, and a dirty/applied/persisted status. On first
-connection, device EEPROM is authoritative: the tool reads GET_CFG and creates
-or updates the JSON mirror after readback. A user import is staged, then must
-pass SET_CFG, APPLY_CFG, and GET_CFG readback before it can be applied or saved. A JSON/device
-conflict is never silently merged; the tool must show both versions and require
-an explicit choice.
+The tool's JSON mirror stores the same schema-2 config fields (including the
+34-entry `keymap`), the device identity rules from VERSION, and a
+dirty/applied/persisted status. On first connection, device EEPROM is
+authoritative: the tool reads GET_CFG and creates or updates the JSON mirror
+after readback. A user import is staged, then must pass SET_CFG, APPLY_CFG, and
+GET_CFG readback before it can be applied or saved. A JSON/device conflict is
+never silently merged; the tool must show both versions and require an explicit
+choice.
 
 ## 8. Physical mapping and compatibility vectors
 
 MPR121 addresses are `0x5A`, `0x5B`, `0x5C`, `0x5D`, corresponding to chip IDs
-0, 1, 2, and 3. The reference 34-key mapping is:
+0, 1, 2, and 3. The reference 34-key mapping below is also the default
+`keymap[34]` in section 5.3: for key at `Index`, the packed byte is
+`(Chip << 4) | Port` (chip 3 is board 3, so A1 is `0x34` = 52, A2 is `0x30` = 48,
+and so on). A tool may reorder the `Chip`/`Port` of any key to match a
+differently soldered panel; the `Index`, `Key`, and `Legacy offset` columns stay
+key-indexed, and the golden vectors below describe the legacy game framing, which
+is unchanged by remapping.
 
 | Index | Key | Chip | Address | Port | Legacy offset |
 |---:|---|---:|---:|---:|---:|
