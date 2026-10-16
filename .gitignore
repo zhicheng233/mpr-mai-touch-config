@@ -1,0 +1,42 @@
+# ---------- Build output ----------
+# .NET / Avalonia
+[Bb]in/
+[Oo]bj/
+*.user
+*.suo
+
+# PlatformIO
+.pio/
+
+# CMake / host tests
+firmware/host_tests/build/
+firmware/host_tests/build*/
+firmware/host_tests/Testing/
+CMakeCache.txt
+CMakeFiles/
+*.obj
+*.pdb
+*.recipe
+*.tlog
+*.lastbuildstate
+
+# ---------- Agent / IDE working data ----------
+.omo/
+.agents/
+.gemini/
+.idea/
+.vs/
+.vscode/
+
+# ---------- Third-party checkout (independent repository) ----------
+opencode-token-metrics/
+
+# ---------- Generated / duplicated assets ----------
+# svg.py was run repeatedly, producing identical copies; only the
+# originals (X.svg) and the pressed variants (X_touch.svg) are used.
+touch/*_touch_touch*.svg
+
+# ---------- OS noise ----------
+Thumbs.db
+Desktop.ini
+.DS_Store
