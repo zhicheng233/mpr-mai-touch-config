@@ -1,0 +1,197 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 660 440" width="100%" height="100%">
+  <defs>
+    <!-- 焊盘通用组件 (外银环 + 内深孔) -->
+    <g id="pad">
+      <circle cx="0" cy="0" r="14" fill="#CBD5E1" stroke="#94A3B8" stroke-width="2" />
+      <circle cx="0" cy="0" r="8" fill="#0F172A" />
+    </g>
+
+    <!-- 贴片电阻组件 (黑色主体 + 两侧银色焊端 + 白色丝印框) -->
+    <g id="smd-res">
+      <rect x="-22" y="-11" width="44" height="22" rx="2" fill="none" stroke="#F8FAFC" stroke-width="2" />
+      <rect x="-17" y="-7" width="10" height="14" rx="1" fill="#CBD5E1" />
+      <rect x="7" y="-7" width="10" height="14" rx="1" fill="#CBD5E1" />
+      <rect x="-9" y="-7" width="18" height="14" fill="#0F172A" />
+    </g>
+
+    <!-- 贴片电容组件 (黄褐色主体 + 两侧银色焊端 + 白色丝印框) -->
+    <g id="smd-cap">
+      <rect x="-22" y="-11" width="44" height="22" rx="2" fill="none" stroke="#F8FAFC" stroke-width="2" />
+      <rect x="-17" y="-7" width="10" height="14" rx="1" fill="#CBD5E1" />
+      <rect x="7" y="-7" width="10" height="14" rx="1" fill="#CBD5E1" />
+      <rect x="-9" y="-7" width="18" height="14" fill="#B48446" />
+    </g>
+
+    <!-- 字体与基础样式 -->
+    <style>
+      .silk-text {
+        font-family: 'Courier New', Consolas, monospace, sans-serif;
+        font-weight: 800;
+        fill: #F8FAFC;
+        user-select: none;
+      }
+      .chip-text {
+        font-family: 'Courier New', Consolas, monospace, sans-serif;
+        font-weight: 700;
+        fill: #64748B;
+        font-size: 9px;
+        text-anchor: middle;
+      }
+    </style>
+  </defs>
+
+  <!-- ================= 1. PCB 主体底板 ================= -->
+  <!-- 底部微投影增加层次感 -->
+  <rect x="34" y="26" width="596" height="392" rx="8" fill="#0F172A" opacity="0.25" />
+  <!-- 黑色 PCB 板身 -->
+  <rect x="30" y="20" width="596" height="392" rx="8" fill="#1E2229" stroke="#111418" stroke-width="3" />
+
+  <!-- ================= 2. 顶部 6Pin 接口区 (GND ~ 3.3V) ================= -->
+  <!-- 顶部白色丝印外框 (八角折线造型还原原图风格) -->
+  <rect x="180" y="22" width="300" height="46" rx="12" fill="none" stroke="#F8FAFC" stroke-width="2.5" />
+  
+  <!-- 6个焊盘 (间距 50px: 205, 255, 305, 355, 405, 455) -->
+  <g transform="translate(0, 45)">
+    <use href="#pad" x="205" y="0" />
+    <use href="#pad" x="255" y="0" />
+    <use href="#pad" x="305" y="0" />
+    <use href="#pad" x="355" y="0" />
+    <use href="#pad" x="405" y="0" />
+    <use href="#pad" x="455" y="0" />
+  </g>
+
+  <!-- 顶部引脚竖向丝印文字 (顺时针旋转90度阅读) -->
+  <g class="silk-text" font-size="22" text-anchor="start">
+    <text x="205" y="78" transform="rotate(90, 205, 78)" dy="7">GND</text>
+    <text x="255" y="78" transform="rotate(90, 255, 78)" dy="7">ADD</text>
+    <text x="305" y="78" transform="rotate(90, 305, 78)" dy="7">SDA</text>
+    <text x="355" y="78" transform="rotate(90, 355, 78)" dy="7">SCL</text>
+    <text x="405" y="78" transform="rotate(90, 405, 78)" dy="7">IRQ</text>
+    <text x="455" y="78" transform="rotate(90, 455, 78)" dy="7">3.3V</text>
+  </g>
+
+  <!-- ================= 3. 中部元器件与主芯片区 ================= -->
+  <!-- 左侧竖排 MPR121 标识与圆点 -->
+  <text x="60" y="150" class="silk-text" font-size="24" transform="rotate(90, 60, 150)">MPR121</text>
+  <circle cx="82" cy="260" r="5" fill="#F8FAFC" />
+
+  <!-- 左侧独立贴片电阻 (753) -->
+  <g transform="translate(155, 240)">
+    <use href="#smd-res" />
+    <text x="0" y="3" fill="#F8FAFC" font-family="monospace" font-size="8" text-anchor="middle">753</text>
+  </g>
+
+  <!-- 芯片左上方贴片电容 -->
+  <use href="#smd-cap" x="255" y="212" />
+
+  <!-- 芯片右上方贴片电容 -->
+  <use href="#smd-cap" x="405" y="212" />
+
+  <!-- 右侧三联排贴片电阻组 (103 x 3) -->
+  <g transform="translate(530, 212)">
+    <!-- 整体外包白色丝印框 -->
+    <rect x="-25" y="-36" width="50" height="72" rx="3" fill="none" stroke="#F8FAFC" stroke-width="2.5" />
+    <!-- 上电阻 -->
+    <g transform="translate(0, -23)">
+      <rect x="-17" y="-7" width="10" height="14" rx="1" fill="#CBD5E1" />
+      <rect x="7" y="-7" width="10" height="14" rx="1" fill="#CBD5E1" />
+      <rect x="-9" y="-7" width="18" height="14" fill="#0F172A" />
+      <text x="0" y="3" fill="#F8FAFC" font-family="monospace" font-size="7" text-anchor="middle">103</text>
+    </g>
+    <!-- 中电阻 -->
+    <g transform="translate(0, 0)">
+      <rect x="-17" y="-7" width="10" height="14" rx="1" fill="#CBD5E1" />
+      <rect x="7" y="-7" width="10" height="14" rx="1" fill="#CBD5E1" />
+      <rect x="-9" y="-7" width="18" height="14" fill="#0F172A" />
+      <text x="0" y="3" fill="#F8FAFC" font-family="monospace" font-size="7" text-anchor="middle">103</text>
+    </g>
+    <!-- 下电阻 -->
+    <g transform="translate(0, 23)">
+      <rect x="-17" y="-7" width="10" height="14" rx="1" fill="#CBD5E1" />
+      <rect x="7" y="-7" width="10" height="14" rx="1" fill="#CBD5E1" />
+      <rect x="-9" y="-7" width="18" height="14" fill="#0F172A" />
+      <text x="0" y="3" fill="#F8FAFC" font-family="monospace" font-size="7" text-anchor="middle">103</text>
+    </g>
+  </g>
+
+  <!-- 中心 MPR121 QFN-20 核心芯片 -->
+  <g transform="translate(330, 260)">
+    <!-- 芯片右上角定位白点 -->
+    <circle cx="30" cy="-36" r="5" fill="#F8FAFC" />
+    
+    <!-- 四周引脚焊盘 (每边5个) -->
+    <g fill="#CBD5E1">
+      <!-- 上边引脚 -->
+      <rect x="-22" y="-34" width="4" height="8" rx="1" />
+      <rect x="-12" y="-34" width="4" height="8" rx="1" />
+      <rect x="-2" y="-34" width="4" height="8" rx="1" />
+      <rect x="8" y="-34" width="4" height="8" rx="1" />
+      <rect x="18" y="-34" width="4" height="8" rx="1" />
+      <!-- 下边引脚 -->
+      <rect x="-22" y="26" width="4" height="8" rx="1" />
+      <rect x="-12" y="26" width="4" height="8" rx="1" />
+      <rect x="-2" y="26" width="4" height="8" rx="1" />
+      <rect x="8" y="26" width="4" height="8" rx="1" />
+      <rect x="18" y="26" width="4" height="8" rx="1" />
+      <!-- 左边引脚 -->
+      <rect x="-34" y="-22" width="8" height="4" rx="1" />
+      <rect x="-34" y="-12" width="8" height="4" rx="1" />
+      <rect x="-34" y="-2" width="8" height="4" rx="1" />
+      <rect x="-34" y="8" width="8" height="4" rx="1" />
+      <rect x="-34" y="18" width="8" height="4" rx="1" />
+      <!-- 右边引脚 -->
+      <rect x="26" y="-22" width="8" height="4" rx="1" />
+      <rect x="26" y="-12" width="8" height="4" rx="1" />
+      <rect x="26" y="-2" width="8" height="4" rx="1" />
+      <rect x="26" y="8" width="8" height="4" rx="1" />
+      <rect x="26" y="18" width="8" height="4" rx="1" />
+    </g>
+
+    <!-- 芯片黑色封装主体 -->
+    <rect x="-28" y="-28" width="56" height="56" rx="3" fill="#2D333F" stroke="#0F172A" stroke-width="2" />
+    <!-- 芯片内部定位小圆点 -->
+    <circle cx="18" cy="-18" r="2.5" fill="#94A3B8" />
+    <!-- 芯片表面激光刻字 -->
+    <text x="0" y="-4" class="chip-text">M121</text>
+    <text x="0" y="8" class="chip-text">253</text>
+  </g>
+
+  <!-- ================= 4. 底部 12Pin 电极接口区 (0 ~ 11) ================= -->
+  <!-- Electrodes/LEDs 标题丝印 -->
+  <text x="330" y="330" class="silk-text" font-size="24" text-anchor="middle" letter-spacing="1.5">Electrodes/LEDs</text>
+
+  <!-- 底部白色丝印外框 -->
+  <rect x="34" y="362" width="588" height="46" rx="12" fill="none" stroke="#F8FAFC" stroke-width="2.5" />
+
+  <!-- 12个电极焊盘 (间距 50px: 从 55 到 605) -->
+  <g transform="translate(0, 385)">
+    <use href="#pad" x="55" y="0" />
+    <use href="#pad" x="105" y="0" />
+    <use href="#pad" x="155" y="0" />
+    <use href="#pad" x="205" y="0" />
+    <use href="#pad" x="255" y="0" />
+    <use href="#pad" x="305" y="0" />
+    <use href="#pad" x="355" y="0" />
+    <use href="#pad" x="405" y="0" />
+    <use href="#pad" x="455" y="0" />
+    <use href="#pad" x="505" y="0" />
+    <use href="#pad" x="555" y="0" />
+    <use href="#pad" x="605" y="0" />
+  </g>
+
+  <!-- 底部编号 0 ~ 11 (逆时针旋转90度，还原原图朝向) -->
+  <g class="silk-text" font-size="21" text-anchor="start">
+    <text x="55" y="355" transform="rotate(-90, 55, 355)" dy="7">0</text>
+    <text x="105" y="355" transform="rotate(-90, 105, 355)" dy="7">1</text>
+    <text x="155" y="355" transform="rotate(-90, 155, 355)" dy="7">2</text>
+    <text x="205" y="355" transform="rotate(-90, 205, 355)" dy="7">3</text>
+    <text x="255" y="355" transform="rotate(-90, 255, 355)" dy="7">4</text>
+    <text x="305" y="355" transform="rotate(-90, 305, 355)" dy="7">5</text>
+    <text x="355" y="355" transform="rotate(-90, 355, 355)" dy="7">6</text>
+    <text x="405" y="355" transform="rotate(-90, 405, 355)" dy="7">7</text>
+    <text x="455" y="355" transform="rotate(-90, 455, 355)" dy="7">8</text>
+    <text x="505" y="355" transform="rotate(-90, 505, 355)" dy="7">9</text>
+    <text x="555" y="355" transform="rotate(-90, 555, 355)" dy="7">10</text>
+    <text x="605" y="355" transform="rotate(-90, 605, 355)" dy="7">11</text>
+  </g>
+</svg>

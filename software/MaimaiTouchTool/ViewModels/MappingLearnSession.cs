@@ -23,7 +23,7 @@ public sealed record MappingLearnOutcome(
 /// </summary>
 public sealed class MappingLearnSession
 {
-    public sealed record TargetKey(int KeyIndex, string Label);
+    public sealed record TargetKey(int KeyIndex, string Label, int Board = -1, int Channel = -1);
 
     private const double StartThresholdMin = 12;
     private const double StartThresholdNoiseFactor = 3.0;
@@ -174,6 +174,13 @@ public sealed class MappingLearnSession
             return;
         }
     }
+
+    /// <summary>
+    /// 按板序生成学习目标：板 1 → 板 4，每块板通道 0 → 11，只包含该通道上已绑定的键。
+    /// </summary>
+    public static List<TargetKey> BuildBoardOrderTargets(IEnumerable<(int KeyIndex, string Label, int Slot, int Channel)> keys)
+        => keys.OrderBy(k => k.Slot).ThenBy(k => k.Channel)
+               .Select(k => new TargetKey(k.KeyIndex, k.Label, k.Slot, k.Channel)).ToList();
 
     private void RecordCurrentKey(bool pressed)
     {

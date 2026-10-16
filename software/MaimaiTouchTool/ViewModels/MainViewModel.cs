@@ -69,6 +69,8 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
     private uint mappingPreviousRawMs;
     private bool mappingFirstFrame = true;
     private string? mappingHeadline;
+    private readonly MappingHistory mappingHistory = new();
+    private bool replayingHistory;
     public TelemetrySessionModel Telemetry { get; } = new();
 
     public MainViewModel(Func<string, (SerialTransport Transport, IRequestClient Client)>? transportFactory = null)
@@ -80,8 +82,7 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
         DisconnectCommand = new AsyncCommand(DisconnectAsync, () => IsConnected && !IsBusy);
         CancelConnectCommand = new AsyncCommand(CancelConnectAsync, () => connectCancellation is not null);
         ApplyCommand = new AsyncCommand(ApplyAsync, () => !IsBusy && IsConnected && IsDirty && !HasConflict && !Editor.HasMappingConflict);
-        SaveCommand = new AsyncCommand(SaveAsync, () => !IsBusy && IsConnected && !IsDirty && !HasConflict && !Editor.HasMappingConflict);
-        ReadbackCommand = new AsyncCommand(ReadbackAsync, () => !IsBusy && IsConnected);
+        SaveCommand = new AsyncCommand(SaveAsync, () => !IsBusy && IsConnected && !IsDirty && !HasConflict && !Editor.HasMappingConflict);        ReadbackCommand = new AsyncCommand(ReadbackAsync, () => !IsBusy && IsConnected);
         RestoreDefaultsCommand = new AsyncCommand(RestoreDefaults, () => !IsBusy && IsConnected);
         UseDeviceCommand = new AsyncCommand(() => { HasConflict = false; StatusMessage = Localizer.Instance["Msg.DeviceSelected"]; return Task.CompletedTask; });
         UseLocalCommand = new AsyncCommand(UseLocalAsync, () => HasConflict && IsConnected);
@@ -92,7 +93,11 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
         GameModeCommand = new AsyncCommand(StartGameModeAsync, () => IsConnected && gameCancellation is null && !IsBusy && !IsStreaming && !IsGuidedRunning && !IsMappingRunning);
         StopGameModeCommand = new AsyncCommand(StopGameModeAsync, () => gameCancellation is not null);
         ResetAllElectrodesCommand = new RelayCommand(() => { Editor.ResetAllElectrodes(); MarkDirty(); });
-        RestoreDefaultMappingCommand = new RelayCommand(() => { Editor.RestoreDefaultMapping(); Editor.SyncHardwareHints(); MarkDirty(); OnPropertyChanged(nameof(HasMappingConflict)); RefreshCommands(); });
+        RestoreDefaultMappingCommand = new RelayCommand(() => { Editor.RestoreDefaultMapping(); MarkDirty(); });
+        UndoMappingCommand = new RelayCommand(UndoMapping, () => mappingHistory.CanUndo);
+        RedoMappingCommand = new RelayCommand(RedoMapping, () => mappingHistory.CanRedo);
+        FillBoardsCommand = new RelayCommand(FillBoards);
+        RollbackMappingCommand = new RelayCommand(RollbackMappingSnapshot);
         StepUpCommand = new RelayCommand(() => Editor.CycleStep(1));
         StepDownCommand = new RelayCommand(() => Editor.CycleStep(-1));
         StartGuidedCommand = new AsyncCommand(StartGuidedAsync, () => IsConnected && !IsBusy && guidedCancellation is null && !IsStreaming && !IsGameMode && !IsMappingRunning);
@@ -107,6 +112,8 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
         CancelMappingCommand = new AsyncCommand(CancelMappingAsync, () => mappingCancellation is not null);
         TouchManifest.Validate();
         WireEditor();
+        Editor.MappingChanged += (_, _) => OnMappingChanged();
+        ResetMappingHistory();
         RefreshPorts();
         Telemetry.ApplyThresholds(applied);
         NumericInputNotifier.InvalidNumberEntered += OnInvalidNumericInput;
@@ -145,6 +152,10 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
     public ICommand StopGameModeCommand { get; }
     public ICommand ResetAllElectrodesCommand { get; }
     public ICommand RestoreDefaultMappingCommand { get; }
+    public ICommand UndoMappingCommand { get; }
+    public ICommand RedoMappingCommand { get; }
+    public ICommand FillBoardsCommand { get; }
+    public ICommand RollbackMappingCommand { get; }
     public ICommand StepUpCommand { get; }
     public ICommand StepDownCommand { get; }
     public ICommand StartGuidedCommand { get; }
@@ -199,10 +210,15 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
     public bool HasMappingHeadline => !string.IsNullOrEmpty(mappingHeadline);
     public string? MappingHeadline { get => mappingHeadline; private set { mappingHeadline = value; OnPropertyChanged(); OnPropertyChanged(nameof(HasMappingHeadline)); } }
     public string MappingStepLabel { get => mappingStepLabel; private set { mappingStepLabel = value; OnPropertyChanged(); } }
+    /// <summary>映射撤销/重做是否可用（供模板里的按钮刷新）。</summary>
+    public bool CanUndoMapping => mappingHistory.CanUndo;
+    public bool CanRedoMapping => mappingHistory.CanRedo;
     public double MappingProgress { get => mappingProgress; private set { mappingProgress = value; OnPropertyChanged(); } }
     public double MappingLiveDepth { get => mappingLiveDepth; private set { mappingLiveDepth = value; OnPropertyChanged(); OnPropertyChanged(nameof(MappingLiveDepthLabel)); } }
     public string MappingLiveDepthLabel => string.Format(Localizer.Instance["Mapping.LiveDepth"], mappingLiveDepth);
     public bool HasMappingConflict => Editor.HasMappingConflict;
+    /// <summary>是否存在可回滚的更早映射快照（直接查快照文件）。</summary>
+    public bool HasMappingSnapshot => MappingSnapshotStore.Previous(MappingSnapshotPath(), CurrentMappingState()) is not null;
     public bool IsToastVisible { get => isToastVisible; private set { isToastVisible = value; OnPropertyChanged(); } }
     public double ToastOpacity { get => toastOpacity; private set { toastOpacity = value; OnPropertyChanged(); } }
     public string ToastMessage => Localizer.Instance["Toast.InvalidNumber"];
@@ -282,7 +298,7 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
             if ((capabilities & ProtocolConstants.CapabilityKeyMapping) == 0) throw new NotSupportedException(Localizer.Instance["Msg.FirmwareTooOld"]);
             await EnterConfigAsync(token);
             var deviceConfig = await ReadConfigWithRecoveryAsync(token);
-            applied = deviceConfig; Editor.Update(applied); WireEditor(); IsDirty = false; Telemetry.ApplyThresholds(applied);
+            applied = deviceConfig; Editor.Update(applied); WireEditor(); IsDirty = false; Telemetry.ApplyThresholds(applied); ResetMappingHistory();
             var identity = new DeviceIdentity(SelectedPort, null, ack.Result[0], ack.Result[1]);
             var path = ConfigPath(identity);
             if (File.Exists(path))
@@ -360,7 +376,7 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
     private async Task ApplyAsync()
     {
         IsBusy = true; StatusMessage = Localizer.Instance["Msg.Applying"];
-        try { applied = await workflow!.ApplyAsync(Editor.ToConfig()); IsDirty = false; OnPropertyChanged(nameof(DirtyLabel)); Telemetry.ApplyThresholds(applied); StatusMessage = Localizer.Instance["Msg.Applied"]; }
+        try { applied = await workflow!.ApplyAsync(Editor.ToConfig()); IsDirty = false; OnPropertyChanged(nameof(DirtyLabel)); Telemetry.ApplyThresholds(applied); SaveMappingSnapshot("apply"); StatusMessage = Localizer.Instance["Msg.Applied"]; }
         catch (Exception ex) { Status = transport?.State == TransportState.Disconnected ? ConnectionStatus.Disconnected : ConnectionStatus.Error; StatusMessage = Localizer.Instance["Msg.ApplyFailed"] + UserMessage(ex); }
         finally { IsBusy = false; }
     }
@@ -375,7 +391,7 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
             deviceSaved = true;
             var document = new ConfigDocument(new DeviceIdentity(SelectedPort, null), applied, new ConfigStatus(false, false));
             await ConfigJsonStore.SaveAtomicAsync(ConfigPath(document.Device), document);
-            persisted = applied; HasConflict = false; OnPropertyChanged(nameof(ConflictLabel)); StatusMessage = Localizer.Instance["Msg.Saved"];
+            persisted = applied; HasConflict = false; OnPropertyChanged(nameof(ConflictLabel)); SaveMappingSnapshot("save"); StatusMessage = Localizer.Instance["Msg.Saved"];
         }
         catch (Exception ex) { Status = transport?.State == TransportState.Disconnected ? ConnectionStatus.Disconnected : ConnectionStatus.Error; StatusMessage = deviceSaved ? Localizer.Instance["Msg.EepromSavedJsonFailed"] + UserMessage(ex) : Localizer.Instance["Msg.SaveFailed"] + UserMessage(ex); }
         finally { IsBusy = false; }
@@ -384,7 +400,7 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
     private async Task ReadbackAsync()
     {
         IsBusy = true; StatusMessage = Localizer.Instance["Msg.ReadingConfig"];
-        try { applied = await ReadConfigAsync(); Editor.Update(applied); WireEditor(); IsDirty = false; Telemetry.ApplyThresholds(applied); StatusMessage = Localizer.Instance["Msg.ReadbackLoaded"]; }
+        try { applied = await ReadConfigAsync(); Editor.Update(applied); WireEditor(); IsDirty = false; Telemetry.ApplyThresholds(applied); ResetMappingHistory(); StatusMessage = Localizer.Instance["Msg.ReadbackLoaded"]; }
         catch (Exception ex) { Status = transport?.State == TransportState.Disconnected ? ConnectionStatus.Disconnected : ConnectionStatus.Error; StatusMessage = Localizer.Instance["Msg.ReadbackFailed"] + UserMessage(ex); }
         finally { IsBusy = false; }
     }
@@ -394,28 +410,97 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
         try
         {
             var path = ConfigPath(new DeviceIdentity(SelectedPort, null));
-            var local = await ConfigJsonStore.LoadAsync(path); Editor.Update(local.Config); WireEditor(); HasConflict = false; IsDirty = true; OnPropertyChanged(nameof(ConflictLabel)); StatusMessage = Localizer.Instance["Msg.LocalStaged"];
+            var local = await ConfigJsonStore.LoadAsync(path); Editor.Update(local.Config); WireEditor(); HasConflict = false; IsDirty = true; OnPropertyChanged(nameof(ConflictLabel)); ResetMappingHistory(); StatusMessage = Localizer.Instance["Msg.LocalStaged"];
         }
         catch (Exception ex) { StatusMessage = Localizer.Instance["Msg.LocalStageFailed"] + UserMessage(ex); }
     }
 
     private Task RestoreDefaults()
     {
-        Editor.Update(ConfigBlob.Defaults()); WireEditor(); MarkDirty(); StatusMessage = Localizer.Instance["Msg.DefaultsStaged"]; return Task.CompletedTask;
+        Editor.Update(ConfigBlob.Defaults()); WireEditor(); MarkDirty(); ResetMappingHistory(); StatusMessage = Localizer.Instance["Msg.DefaultsStaged"]; return Task.CompletedTask;
     }
 
     private void WireEditor()
     {
         foreach (var board in Editor.Boards) board.PropertyChanged += (_, _) => MarkDirty();
         foreach (var electrode in Editor.Electrodes) electrode.PropertyChanged += (_, _) => MarkDirty();
-        foreach (var mapping in Editor.KeyMappings) mapping.PropertyChanged += (_, _) =>
-        {
-            Editor.RefreshMappingConflict();
-            Editor.SyncHardwareHints();
-            OnPropertyChanged(nameof(HasMappingConflict));
-            MarkDirty();
-            RefreshCommands();
-        };
+        foreach (var mapping in Editor.KeyMappings) mapping.PropertyChanged += (_, _) => MarkDirty();
+    }
+
+    /// <summary>映射变化：脏标记 + 撤销栈 + 应用条件刷新。载入配置时用 <see cref="ResetMappingHistory"/> 重置基线。</summary>
+    private void OnMappingChanged()
+    {
+        MarkDirty();
+        if (!replayingHistory) mappingHistory.Push(CurrentMappingState());
+        NotifyMappingState();
+    }
+
+    public void ResetMappingHistory()
+    {
+        mappingHistory.Reset(CurrentMappingState());
+        NotifyMappingState();
+    }
+
+    private void NotifyMappingState()
+    {
+        OnPropertyChanged(nameof(CanUndoMapping));
+        OnPropertyChanged(nameof(CanRedoMapping));
+        OnPropertyChanged(nameof(HasMappingConflict));
+        OnPropertyChanged(nameof(HasMappingSnapshot));
+        RefreshCommands();
+    }
+
+    private MappingState CurrentMappingState() => new() { KeyMap = Editor.CurrentMapping(), Slots = Editor.CurrentSlots() };
+
+    private void ApplyMappingState(MappingState state)
+    {
+        // 撤销/重做本身不应再往栈里推一条（否则重做会被清掉）。
+        replayingHistory = true;
+        try { Editor.LoadMapping(state.KeyMap, state.Slots); }
+        finally { replayingHistory = false; }
+        MarkDirty();
+        NotifyMappingState();
+    }
+
+    private void UndoMapping()
+    {
+        var state = mappingHistory.Undo();
+        if (state is null) return;
+        ApplyMappingState(state);
+        StatusMessage = Localizer.Instance["Config.Mapping.Undone"];
+    }
+
+    private void RedoMapping()
+    {
+        var state = mappingHistory.Redo();
+        if (state is null) return;
+        ApplyMappingState(state);
+        StatusMessage = Localizer.Instance["Config.Mapping.Redone"];
+    }
+
+    /// <summary>「新建板卡」：按界面上的每板键数把连续键名灌进四块板。</summary>
+    private void FillBoards()
+    {
+        Editor.FillBoards(Editor.BoardMappings.Select(b => b.FillCount).ToList());
+        MarkDirty();
+        StatusMessage = string.Format(Localizer.Instance["Config.Mapping.Filled"], Editor.BoardMappings.Sum(b => b.Channels.Count(c => c.IsAssigned)));
+    }
+
+    private string MappingSnapshotPath() => Path.Combine(Path.GetDirectoryName(ConfigPath(new DeviceIdentity(SelectedPort, null))) ?? ".", "mapping_snapshots.json");
+
+    private void SaveMappingSnapshot(string source)
+    {
+        try { MappingSnapshotStore.Append(MappingSnapshotPath(), CurrentMappingState(), source); }
+        catch (Exception ex) { Telemetry.RecordEvent("WARN", ex.Message); }
+        OnPropertyChanged(nameof(HasMappingSnapshot));
+    }    private void RollbackMappingSnapshot()
+    {
+        var entry = MappingSnapshotStore.Previous(MappingSnapshotPath(), CurrentMappingState());
+        if (entry is null) { StatusMessage = Localizer.Instance["Config.Mapping.NoSnapshot"]; return; }
+        Editor.LoadMapping(entry.KeyMap, entry.Slots);
+        MarkDirty();
+        NotifyMappingState();
+        StatusMessage = string.Format(Localizer.Instance["Config.Mapping.Rolled"], entry.Timestamp.LocalDateTime);
     }
 
     private void RefreshCommands()
@@ -426,7 +511,7 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
         OnPropertyChanged(nameof(IsGameMode));
         OnPropertyChanged(nameof(IsGameModeActive));
         OnPropertyChanged(nameof(CanToggleGameMode));
-        foreach (var command in new[] { RefreshPortsCommand, ConnectCommand, DisconnectCommand, CancelConnectCommand, ApplyCommand, SaveCommand, ReadbackCommand, RestoreDefaultsCommand, UseDeviceCommand, UseLocalCommand, CalibrateCommand, CancelCalibrationCommand, StartStreamCommand, StopStreamCommand, GameModeCommand, StopGameModeCommand, StartGuidedCommand, SkipGuidedKeyCommand, FinishGuidedKeyCommand, CancelGuidedCommand, ApplyGuidedResultCommand, DiscardGuidedResultCommand, StartMappingCommand, SkipMappingKeyCommand, FinishMappingKeyCommand, CancelMappingCommand })
+        foreach (var command in new[] { RefreshPortsCommand, ConnectCommand, DisconnectCommand, CancelConnectCommand, ApplyCommand, SaveCommand, ReadbackCommand, RestoreDefaultsCommand, UseDeviceCommand, UseLocalCommand, CalibrateCommand, CancelCalibrationCommand, StartStreamCommand, StopStreamCommand, GameModeCommand, StopGameModeCommand, StartGuidedCommand, SkipGuidedKeyCommand, FinishGuidedKeyCommand, CancelGuidedCommand, ApplyGuidedResultCommand, DiscardGuidedResultCommand, StartMappingCommand, SkipMappingKeyCommand, FinishMappingKeyCommand, CancelMappingCommand, UndoMappingCommand, RedoMappingCommand, FillBoardsCommand, RollbackMappingCommand })
         {
             if (command is AsyncCommand asyncCommand) asyncCommand.Refresh();
             else if (command is RelayCommand relayCommand) relayCommand.Refresh();
@@ -437,6 +522,9 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
         OnPropertyChanged(nameof(IsMappingRunning));
         OnPropertyChanged(nameof(ShowMappingIntro));
         OnPropertyChanged(nameof(HasMappingConflict));
+        OnPropertyChanged(nameof(CanUndoMapping));
+        OnPropertyChanged(nameof(CanRedoMapping));
+        OnPropertyChanged(nameof(HasMappingSnapshot));
     }
 
     private void OnInvalidNumericInput(object? sender, EventArgs args)
@@ -733,7 +821,8 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
     private async Task StartMappingAsync()
     {
         if (transport is null) { StatusMessage = Localizer.Instance["Msg.StreamUnavailable"]; return; }
-        var targets = Editor.KeyMappings.Select(m => new MappingLearnSession.TargetKey(m.Index, m.Label)).ToList();
+        var targets = MappingLearnSession.BuildBoardOrderTargets(
+            Editor.KeyMappings.Select(m => (m.Index, m.Label, m.Board, m.Channel)));
         if (targets.Count == 0) { StatusMessage = Localizer.Instance["Mapping.NoTargets"]; return; }
         mappingSession = new MappingLearnSession(targets);
         mappingCancellation = new CancellationTokenSource();
@@ -805,8 +894,10 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
             return string.Format(Localizer.Instance["Mapping.BaselineStep"], Math.Round(session.BaselineProgress * 100));
         var target = session.CurrentTarget;
         if (target is null) return Localizer.Instance["Mapping.Done"];
-        var position = session.CurrentIndex + 1;
-        return string.Format(Localizer.Instance["Mapping.KeyStep"], target.Label, position, session.Outcomes.Count + (session.CurrentTarget is null ? 0 : 1));
+        var key = Editor.KeyMappings[target.KeyIndex];
+        var board = Editor.BoardMappings.FirstOrDefault(b => b.Slot == key.Board);
+        return string.Format(Localizer.Instance["Mapping.KeyStep"], target.Label,
+            board?.Title ?? string.Format(Localizer.Instance["Config.Mapping.BoardN"], key.Board + 1), key.Channel, session.CurrentIndex + 1, session.Outcomes.Count);
     }
 
     private void CompleteMapping()
@@ -820,6 +911,7 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
         Editor.Update(current with { KeyMap = mapping });
         WireEditor();
         MarkDirty();
+        ResetMappingHistory();
         Telemetry.ApplyThresholds(Editor.ToConfig());
         MappingHeadline = string.Format(Localizer.Instance["Mapping.Headline"], session.DetectedCount, session.Outcomes.Count, session.UndetectedCount);
         MappingStepLabel = Localizer.Instance["Mapping.Done"];

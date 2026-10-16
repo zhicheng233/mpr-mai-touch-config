@@ -593,13 +593,18 @@ choice.
 ## 8. Physical mapping and compatibility vectors
 
 MPR121 addresses are `0x5A`, `0x5B`, `0x5C`, `0x5D`, corresponding to chip IDs
-0, 1, 2, and 3. The reference 34-key mapping below is also the default
-`keymap[34]` in section 5.3: for key at `Index`, the packed byte is
-`(Chip << 4) | Port` (chip 3 is board 3, so A1 is `0x34` = 52, A2 is `0x30` = 48,
-and so on). A tool may reorder the `Chip`/`Port` of any key to match a
-differently soldered panel; the `Index`, `Key`, and `Legacy offset` columns stay
-key-indexed, and the golden vectors below describe the legacy game framing, which
-is unchanged by remapping.
+0, 1, 2, and 3. There is no separate address field: a board's I2C address is
+implied purely by its position in `boards[4]` / the high nibble of `keymap[i]`.
+Swapping which physical chip occupies a board slot therefore means rewriting the
+high nibble of every affected `keymap[i]`, which the desktop tool does as a
+whole-board swap; the blob itself just receives the resulting bytes and requires
+the 34 `(board, channel)` pairs to stay unique. The reference 34-key mapping
+below is also the default `keymap[34]` in section 5.3: for key at `Index`, the
+packed byte is `(Chip << 4) | Port` (chip 3 is board 3, so A1 is `0x34` = 52, A2
+is `0x30` = 48, and so on). A tool may reorder the `Chip`/`Port` of any key to
+match a differently soldered panel; the `Index`, `Key`, and `Legacy offset`
+columns stay key-indexed, and the golden vectors below describe the legacy game
+framing, which is unchanged by remapping.
 
 | Index | Key | Chip | Address | Port | Legacy offset |
 |---:|---|---:|---:|---:|---:|

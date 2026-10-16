@@ -49,5 +49,6 @@
     <AvaloniaResource Include="..\..\touch\E6.svg" Link="Assets\Touch\E6.svg" /><AvaloniaResource Include="..\..\touch\E6_touch.svg" Link="Assets\Touch\E6_touch.svg" />
     <AvaloniaResource Include="..\..\touch\E7.svg" Link="Assets\Touch\E7.svg" /><AvaloniaResource Include="..\..\touch\E7_touch.svg" Link="Assets\Touch\E7_touch.svg" />
     <AvaloniaResource Include="..\..\touch\E8.svg" Link="Assets\Touch\E8.svg" /><AvaloniaResource Include="..\..\touch\E8_touch.svg" Link="Assets\Touch\E8_touch.svg" />
+    <AvaloniaResource Include="Assets\mpr121.svg" Link="Assets\mpr121.svg" />
   </ItemGroup>
 </Project>

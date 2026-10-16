@@ -211,7 +211,12 @@
             <StackPanel Spacing="3">
               <Grid ColumnDefinitions="*,Auto">
                 <TextBlock Classes="section" Margin="0" VerticalAlignment="Center" Text="{DynamicResource Config.Mapping}"/>
-                <Button Grid.Column="1" Command="{Binding RestoreDefaultMappingCommand}" Content="{DynamicResource Config.Mapping.Restore}"/>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                  <Button Classes="mini" Command="{Binding UndoMappingCommand}" IsEnabled="{Binding CanUndoMapping}" Content="↶" ToolTip.Tip="{DynamicResource Config.Mapping.Undo}"/>
+                  <Button Classes="mini" Command="{Binding RedoMappingCommand}" IsEnabled="{Binding CanRedoMapping}" Content="↷" ToolTip.Tip="{DynamicResource Config.Mapping.Redo}"/>
+                  <Button Classes="mini-wide" Command="{Binding RollbackMappingCommand}" IsEnabled="{Binding HasMappingSnapshot}" Content="{DynamicResource Config.Mapping.Snapshot}" ToolTip.Tip="{DynamicResource Config.Mapping.Snapshot}"/>
+                  <Button Command="{Binding RestoreDefaultMappingCommand}" Content="{DynamicResource Config.Mapping.Restore}"/>
+                </StackPanel>
               </Grid>
               <TextBlock Foreground="#A9B1BA" Text="{DynamicResource Config.MappingHint}" TextWrapping="Wrap"/>
             </StackPanel>
@@ -220,23 +225,119 @@
               <TextBlock Foreground="#E8A0A0" TextWrapping="Wrap" Text="{DynamicResource Config.Mapping.Conflict}"/>
             </Border>
 
-            <ItemsControl ItemsSource="{Binding Editor.KeyMappings}">
-              <ItemsControl.ItemsPanel>
-                <ItemsPanelTemplate>
-                  <UniformGrid Columns="2"/>
-                </ItemsPanelTemplate>
-              </ItemsControl.ItemsPanel>
+            <!-- 4 块 PCB 图形：焊盘即通道，点击焊盘在弹出列表里选键 -->
+            <ItemsControl ItemsSource="{Binding Editor.BoardMappings}">
               <ItemsControl.ItemTemplate>
                 <DataTemplate>
-                  <Grid ColumnDefinitions="54,72,72,*" ColumnSpacing="6" Margin="0,2,12,2">
-                    <TextBlock FontWeight="Bold" FontSize="12" Foreground="#D8B46A" VerticalAlignment="Center" Text="{Binding Label}"/>
-                    <ComboBox Grid.Column="1" HorizontalAlignment="Stretch" ItemsSource="{Binding BoardItems}" SelectedItem="{Binding BoardNumber}"/>
-                    <ComboBox Grid.Column="2" HorizontalAlignment="Stretch" ItemsSource="{Binding ChannelItems}" SelectedItem="{Binding Channel}"/>
-                    <TextBlock Grid.Column="3" VerticalAlignment="Center" FontSize="11" Foreground="#7F8A95" Text="{Binding HardwareHint}" TextWrapping="NoWrap"/>
-                  </Grid>
+                  <Border Background="#181C21" BorderBrush="#39414A" BorderThickness="1" CornerRadius="6" Margin="0,0,8,8" Padding="10">
+                    <StackPanel Spacing="6">
+                      <Grid ColumnDefinitions="Auto,Auto,*">
+                        <TextBlock FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center" Foreground="#D8B46A" Text="{Binding Label}"/>
+                        <ComboBox Grid.Column="1" Margin="8,0,0,0" MinWidth="84" ItemsSource="{Binding AddressItems}" SelectedIndex="{Binding Slot}"/>
+                        <TextBlock Grid.Column="2" Margin="8,0,0,0" VerticalAlignment="Center" FontSize="11" Foreground="#7F8A95" Text="{DynamicResource Config.Mapping.SwapHint}"/>
+                      </Grid>
+                      <Viewbox Stretch="Uniform" Height="170">
+                        <!-- 只显示 mpr121.svg 底部的电极接口区（焊盘 + 0..11 丝印），
+                             坐标空间仍是完整的 660×440，所以焊盘覆盖层位置不用改。 -->
+                        <Border Width="660" Height="170" ClipToBounds="True">
+                          <Panel Width="660" Height="440" Margin="0,-270,0,0">
+                          <Image Width="660" Height="440" Stretch="Fill" Source="{Binding SvgPath, Converter={StaticResource SvgPathConverter}}"/>
+                          <ItemsControl ItemsSource="{Binding Channels}">
+                            <ItemsControl.ItemsPanel>
+                              <ItemsPanelTemplate>
+                                <Canvas Width="660" Height="440"/>
+                              </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.Styles>
+                              <Style Selector="ContentPresenter">
+                                <Setter Property="Canvas.Left" Value="{Binding PadLeft}"/>
+                                <Setter Property="Canvas.Top" Value="{Binding PadTop}"/>
+                              </Style>
+                            </ItemsControl.Styles>
+                            <ItemsControl.ItemTemplate>
+                              <DataTemplate>
+                                <Button Width="40" Height="40" Padding="0" CornerRadius="20" HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                                        Background="{Binding PadBrush}" BorderBrush="{Binding PadBorderBrush}" BorderThickness="2"
+                                        ToolTip.Tip="{Binding PadTooltip}">
+                                  <Button.Flyout>
+                                    <Flyout Placement="Bottom">
+                                      <ScrollViewer MaxHeight="320">
+                                        <ItemsControl ItemsSource="{Binding KeyOptions}">
+                                          <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                              <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Content="{Binding Label}" Command="{Binding SelectCommand}"/>
+                                            </DataTemplate>
+                                          </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                      </ScrollViewer>
+                                    </Flyout>
+                                  </Button.Flyout>
+                                  <TextBlock FontSize="12" FontWeight="SemiBold" Foreground="{Binding PadLabelBrush}" Text="{Binding PadLabel}"/>
+                                </Button>
+                              </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                          </ItemsControl>
+                          </Panel>
+                        </Border>
+                      </Viewbox>
+                    </StackPanel>
+                  </Border>
                 </DataTemplate>
               </ItemsControl.ItemTemplate>
             </ItemsControl>
+
+            <!-- 每块板的通道列表（板号 · 地址 + CH00..CH11 下拉） -->
+            <TextBlock Classes="section" Margin="0,6,0,0" Text="{DynamicResource Config.Mapping.List}"/>
+            <ItemsControl ItemsSource="{Binding Editor.BoardMappings}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <StackPanel Spacing="4" Margin="0,2,0,10">
+                    <TextBlock Classes="board-title" Foreground="#D8B46A" Text="{Binding Title}"/>
+                    <ItemsControl ItemsSource="{Binding Channels}">
+                      <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                          <UniformGrid Columns="4"/>
+                        </ItemsPanelTemplate>
+                      </ItemsControl.ItemsPanel>
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="4" Margin="0,2,12,2">
+                            <TextBlock MinWidth="34" FontSize="11" VerticalAlignment="Center" Foreground="#7F8A95" Text="{Binding ChannelLabel}"/>
+                            <ComboBox Grid.Column="1" HorizontalAlignment="Stretch" MinWidth="110"
+                                      ItemsSource="{Binding KeyOptions}" SelectedIndex="{Binding SelectedOptionIndex}"
+                                      PlaceholderText="{DynamicResource Config.Mapping.Unassigned}"
+                                      ToolTip.Tip="{DynamicResource Config.Mapping.SwapHint}"/>
+                          </Grid>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </StackPanel>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <!-- 新建板卡：每板键数 + 一键填充 -->
+            <Border Background="#1D2126" BorderBrush="#39414A" BorderThickness="1" CornerRadius="4" Padding="10">
+              <StackPanel Spacing="6">
+                <TextBlock FontWeight="SemiBold" FontSize="12" Text="{DynamicResource Config.Mapping.NewBoards}"/>
+                <ItemsControl ItemsSource="{Binding Editor.BoardMappings}">
+                  <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                      <UniformGrid Columns="4"/>
+                    </ItemsPanelTemplate>
+                  </ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,0,10,0">
+                        <TextBlock FontSize="11" VerticalAlignment="Center" Foreground="#A9B1BA" Text="{Binding Label}"/>
+                        <TextBox Classes="table-editor" Text="{Binding FillCount, Converter={StaticResource SafeIntConverter}, UpdateSourceTrigger=PropertyChanged}" ToolTip.Tip="{DynamicResource Config.Mapping.NewBoardsHint}"/>
+                      </StackPanel>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <Button HorizontalAlignment="Left" Classes="primary" Command="{Binding FillBoardsCommand}" Content="{DynamicResource Config.Mapping.Fill}"/>
+              </StackPanel>
+            </Border>
           </StackPanel>
         </Border>
 

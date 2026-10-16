@@ -28,6 +28,9 @@ public static class KeyMapping
     public static int ChannelOf(byte packed) => packed & 0x0F;
     public static int ChannelIndexOf(byte packed) => BoardOf(packed) * PortCount + ChannelOf(packed);
 
+    /// <summary>单个打包字节是否合法：board 0..3、channel 0..11。</summary>
+    public static bool IsValidPacked(byte packed) => BoardOf(packed) < BoardCount && ChannelOf(packed) < PortCount;
+
     /// <summary>映射是否合法：长度、取值范围、34 键通道互不重复。错误信息写入 <paramref name="error"/>。</summary>
     public static bool TryValidate(byte[]? map, out string? error)
     {

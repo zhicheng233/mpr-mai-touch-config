@@ -1,3 +1,4 @@
+using MaimaiTouchTool.Persistence;
 using MaimaiTouchTool.Protocol;
 using MaimaiTouchTool.ViewModels;
 using Xunit;
@@ -245,5 +246,187 @@ public sealed class KeyMappingEditorTests
         telemetry.AddFrame(frame, 1, DateTimeOffset.UtcNow);
         Assert.True(telemetry.Channels[8].IsTouched);
         Assert.False(telemetry.Channels[40].IsTouched);
+    }
+}
+
+/// <summary>按板分组视图 / 换位指派 / 板号对调 / 批量填充 / 撤销重做 / 快照。</summary>
+public sealed class BoardGroupedMappingTests
+{
+    [Fact]
+    public void BoardViewGroupsKeysByBoardAndChannel()
+    {
+        var editor = new ConfigurationEditorModel(ConfigBlob.Defaults());
+        Assert.Equal(4, editor.BoardMappings.Count);
+        Assert.All(editor.BoardMappings, board => Assert.Equal(12, board.Channels.Count));
+        Assert.Equal([0, 1, 2, 3], editor.BoardMappings.Select(b => b.Slot).ToArray());
+        Assert.Equal(["0x5A", "0x5B", "0x5C", "0x5D"], editor.BoardMappings.Select(b => b.AddressHex).ToArray());
+
+        // A1 依据默认映射落在 board 3（0x5D）通道 4。
+        var board3 = editor.BoardMappings[3];
+        Assert.Equal("A1", board3.Channels[4].KeyLabel);
+        Assert.True(board3.Channels[4].IsAssigned);
+        // 同一块板上没有第二个键占据通道 4；而空通道显示未分配。
+        Assert.False(editor.BoardMappings[0].Channels[8].IsAssigned);   // 默认映射只用到 CH0..CH7
+        Assert.Equal(34, editor.BoardMappings.Sum(b => b.Channels.Count(c => c.IsAssigned)));
+    }
+
+    [Fact]
+    public void AssignChannelSwapsInsteadOfLosingKeys()
+    {
+        var editor = new ConfigurationEditorModel(ConfigBlob.Defaults());
+        // A1 在 board3/CH4，A2 在 board3/CH0；把 A2 指派到 A1 的位置 → 两者对调。
+        editor.AssignChannel(3, 4, 1);
+        Assert.Equal(KeyMapping.Pack(3, 4), editor.KeyMappings[1].Packed);
+        Assert.Equal(KeyMapping.Pack(3, 0), editor.KeyMappings[0].Packed);
+        Assert.False(editor.HasMappingConflict);
+        Assert.Equal(34, editor.BoardMappings.Sum(b => b.Channels.Count(c => c.IsAssigned)));
+
+        // 指派到一个空通道：只搬走，来源变空（34 个键始终都在某个通道上）。
+        editor.AssignChannel(0, 11, 0);
+        Assert.Equal(KeyMapping.Pack(0, 11), editor.KeyMappings[0].Packed);
+        Assert.False(editor.BoardMappings[3].Channels[0].IsAssigned);   // A1 离开后 CH0 空出来
+        Assert.Equal(34, editor.BoardMappings.Sum(b => b.Channels.Count(c => c.IsAssigned)));
+    }
+
+    [Fact]
+    public void ChangingBoardAddressSwapsWholeBoards()
+    {
+        var editor = new ConfigurationEditorModel(ConfigBlob.Defaults());
+        // 板 1（组 0 / 0x5A）其实是 0x5D：与占用 0x5D 的组对调整块板（含其上的键）。
+        var beforeA1 = editor.KeyMappings[0].Packed;   // A1 原本在 0x5D
+        editor.SetBoardSlot(0, 3);
+        Assert.Equal(3, editor.BoardMappings[0].Slot);
+        Assert.Equal(0, editor.BoardMappings[3].Slot);
+        Assert.Equal(0, editor.KeyMappings[0].Board);            // 键跟着板走到 0x5A
+        Assert.NotEqual(beforeA1, editor.KeyMappings[0].Packed);
+        Assert.Equal([0, 1, 2, 3], editor.BoardMappings.Select(b => b.Slot).OrderBy(x => x).ToArray());
+        Assert.Equal(34, editor.BoardMappings.Sum(b => b.Channels.Count(c => c.IsAssigned)));
+        editor.RestoreDefaultMapping();
+        Assert.Equal(KeyMapping.Default, editor.CurrentMapping());
+    }
+
+    [Fact]
+    public void FillBoardsLaysOutKeysInBoardOrder()
+    {
+        var editor = new ConfigurationEditorModel(ConfigBlob.Defaults());
+        editor.FillBoards([8, 9, 9, 8]);
+        Assert.False(editor.HasMappingConflict);
+        Assert.Equal(34, editor.CurrentMapping().Distinct().Count());
+        // 板 1 通道 0..7 = A1..A8，板 2 通道 0..8 = B1..B9。
+        Assert.Equal("A1", editor.BoardMappings[0].Channels[0].KeyLabel);
+        Assert.Equal("A8", editor.BoardMappings[0].Channels[7].KeyLabel);
+        Assert.Equal("B1", editor.BoardMappings[1].Channels[0].KeyLabel);
+        Assert.Equal("E8", editor.BoardMappings[3].Channels[7].KeyLabel);
+        // 总数仍是 34 键全分配。
+        Assert.Equal(34, editor.BoardMappings.Sum(b => b.Channels.Count(c => c.IsAssigned)));
+    }
+
+    [Fact]
+    public void FillBoardsPlacesLeftoversWhenCountsAreShort()
+    {
+        var editor = new ConfigurationEditorModel(ConfigBlob.Defaults());
+        editor.FillBoards([4, 4, 4, 4]);   // 只指定 16 个通道，其余键顺次填到空闲通道
+        Assert.Equal(34, editor.BoardMappings.Sum(b => b.Channels.Count(c => c.IsAssigned)));
+        Assert.False(editor.HasMappingConflict);
+        Assert.Equal("A1", editor.BoardMappings[0].Channels[0].KeyLabel);
+        Assert.Equal("C1", editor.BoardMappings[0].Channels[4].KeyLabel);   // 剩余键按板序填进第一个空闲通道
+    }
+
+    [Fact]
+    public void MappingHistoryTracksUndoRedoOnTheEditor()
+    {
+        var editor = new ConfigurationEditorModel(ConfigBlob.Defaults());
+        var history = new MappingHistory();
+        history.Reset(new MappingState { KeyMap = editor.CurrentMapping(), Slots = editor.CurrentSlots() });
+        Assert.False(history.CanUndo);
+        Assert.False(history.CanRedo);
+
+        editor.AssignChannel(0, 11, 0);
+        history.Push(new MappingState { KeyMap = editor.CurrentMapping(), Slots = editor.CurrentSlots() });
+        Assert.True(history.CanUndo);
+
+        var undo = history.Undo()!;
+        editor.LoadMapping(undo.KeyMap, undo.Slots);
+        Assert.Equal(KeyMapping.Default, editor.CurrentMapping());
+        Assert.True(history.CanRedo);
+
+        var redo = history.Redo()!;
+        editor.LoadMapping(redo.KeyMap, redo.Slots);
+        Assert.Equal(KeyMapping.Pack(0, 11), editor.KeyMappings[0].Packed);
+    }
+
+    [Fact]
+    public void MappingSnapshotsRoundTripAndFindPrevious()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "maimai-snap-" + Guid.NewGuid().ToString("N"), "snap.json");
+        try
+        {
+            var first = new MappingState { KeyMap = (byte[])KeyMapping.Default.Clone(), Slots = [0, 1, 2, 3] };
+            MappingSnapshotStore.Append(path, first, "test");
+            var second = first.Clone();
+            second.KeyMap[0] = KeyMapping.Pack(0, 11);
+            MappingSnapshotStore.Append(path, second, "test");
+            Assert.Equal(2, MappingSnapshotStore.Load(path).Count);
+            MappingSnapshotStore.Append(path, second, "test");   // 重复不追加
+            Assert.Equal(2, MappingSnapshotStore.Load(path).Count);
+
+            var previous = MappingSnapshotStore.Previous(path, second);
+            Assert.NotNull(previous);
+            Assert.Equal(KeyMapping.Default, previous!.KeyMap);
+        }
+        finally
+        {
+            var dir = Path.GetDirectoryName(path);
+            if (dir is not null && Directory.Exists(dir)) Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void LearnTargetsAreOrderedByBoardThenChannel()
+    {
+        var targets = MappingLearnSession.BuildBoardOrderTargets(
+        [
+            (16, "C1", 1, 0),   // board 1 channel 0
+            (0, "A1", 3, 4),    // board 3 channel 4
+            (8, "B1", 0, 5),    // board 0 channel 5
+        ]);
+        Assert.Equal(["B1", "C1", "A1"], targets.Select(t => t.Label).ToArray());
+        Assert.Equal([0, 1, 3], targets.Select(t => t.Board).ToArray());
+    }
+
+    /// <summary>界面下拉框走的是 SelectedIndex↔SelectedOptionIndex 双向绑定，这里直接驱动它。</summary>
+    [Fact]
+    public void ChannelSelectionFollowsTheUiBindingPath()
+    {
+        var editor = new ConfigurationEditorModel(ConfigBlob.Defaults());
+        var board0 = editor.BoardMappings[0];
+
+        // 空通道：SelectedIndex = -1，焊盘显示短横。
+        var empty = board0.Channels[10];
+        Assert.False(empty.IsAssigned);
+        Assert.Equal(-1, empty.SelectedOptionIndex);
+        Assert.Equal("–", empty.PadLabel);
+
+        // 下拉框选到 0 号键（A1）→ 通过 KeyRequested 走 AssignChannel。
+        empty.SelectedOptionIndex = 0;
+        Assert.Equal(KeyMapping.Pack(0, 10), editor.KeyMappings[0].Packed);
+        Assert.Equal("A1", empty.KeyLabel);
+        Assert.Equal("A1", empty.PadLabel);
+        Assert.Equal(0, empty.SelectedOptionIndex);
+
+        // 重新读到同一值不应再触发一次换位（幂等）。
+        var before = editor.CurrentMapping();
+        empty.SelectedOptionIndex = 0;
+        Assert.Equal(before, editor.CurrentMapping());
+
+        // 焊盘弹出列表的选项带指派命令，且显示的是键名而不是记录 ToString()。
+        var option = empty.KeyOptions[1];
+        Assert.Equal("A2", option.Label);
+        Assert.Equal("A2", option.ToString());
+        Assert.NotNull(option.SelectCommand);
+        option.SelectCommand!.Execute(null);
+        Assert.Equal("A2", empty.KeyLabel);
+        Assert.False(editor.HasMappingConflict);
+        Assert.Equal(34, editor.BoardMappings.Sum(b => b.Channels.Count(c => c.IsAssigned)));
     }
 }
