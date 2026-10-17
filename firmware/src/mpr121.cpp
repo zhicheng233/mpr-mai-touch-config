@@ -63,16 +63,25 @@ void Mpr121Hardware::configureHardware(uint8_t board) {
   // 进入 Stop Mode（ECR=0），此时才能写配置寄存器。
   writeRegister(address, 0x5E, 0x00);
 
-  // 基线跟踪 —— 上升沿（释放方向）。
-  writeRegister(address, 0x2B, 1);  // MHDR
-  writeRegister(address, 0x2C, 1);  // NHDR
-  writeRegister(address, 0x2D, 1);  // NCLR
-  writeRegister(address, 0x2E, 0);  // FDLR
-  // 基线跟踪 —— 下降沿（触摸方向）。
-  writeRegister(address, 0x2F, 3);  // MHDF
-  writeRegister(address, 0x30, 3);  // NHDF
-  writeRegister(address, 0x31, 6);  // NCLF
-  writeRegister(address, 0x32, 2);  // FDLF
+  // 基线跟踪 —— 上升沿（释放方向）。这四个值必须与参考固件
+  // maimaiTouchControl/Adafruit_MPR121.cpp:80-83 一致（1/1/0x0E/0）。
+  // NCLR=1 是危险的：只要 1 个采样超过阈值就抬一次 baseline，配合下降侧被拖慢
+  // （NCLF=6、FDLF=2，见下），baseline 就变成「升得快、降得慢」的棘轮 —— 每按一次往上跳一格，
+  // 直到撞上 AUTOCONFIG 上限（USL*4 = 808），与 filtered 重合，drop 恒为 0，再也无法释放。
+  // 参考固件用 0x0E（14 个采样）压住这个棘轮。
+  writeRegister(address, 0x2B, 1);     // MHDR
+  writeRegister(address, 0x2C, 1);     // NHDR
+  writeRegister(address, 0x2D, 0x0E);  // NCLR —— 必须是 14，不能是 1
+  writeRegister(address, 0x2E, 0);     // FDLR
+  // 基线跟踪 —— 下降沿（触摸方向）。这四个值必须与参考固件
+  // maimaiTouchControl/Adafruit_MPR121.cpp:85-88 一致（1/5/1/0）。
+  // 调大（如 3/3/6/2）会让 MPR121 把「持续按压造成的 filtered 下降」当成环境漂移，
+  // 逐次把 baseline 往上抬；抬到 AUTOCONFIG 上限（USL*4）后与 filtered 重合，
+  // baseline-filtered 永远接近 0，再也达不到释放阈值 —— 表现为按键卡住不松。
+  writeRegister(address, 0x2F, 1);  // MHDF
+  writeRegister(address, 0x30, 5);  // NHDF
+  writeRegister(address, 0x31, 1);  // NCLF
+  writeRegister(address, 0x32, 0);  // FDLF
   // 基线跟踪 —— 触摸。
   writeRegister(address, 0x33, 0);  // NHDT
   writeRegister(address, 0x34, 0);  // NCLT
