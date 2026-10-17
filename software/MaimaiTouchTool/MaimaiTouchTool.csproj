@@ -5,7 +5,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Avalonia" Version="11.3.8" />
@@ -50,5 +50,16 @@
     <AvaloniaResource Include="..\..\touch\E7.svg" Link="Assets\Touch\E7.svg" /><AvaloniaResource Include="..\..\touch\E7_touch.svg" Link="Assets\Touch\E7_touch.svg" />
     <AvaloniaResource Include="..\..\touch\E8.svg" Link="Assets\Touch\E8.svg" /><AvaloniaResource Include="..\..\touch\E8_touch.svg" Link="Assets\Touch\E8_touch.svg" />
     <AvaloniaResource Include="Assets\mpr121.svg" Link="Assets\mpr121.svg" />
+  </ItemGroup>
+  <ItemGroup>
+    <!--
+      固件刷写读的是编译产物 firmware.bin + firmware.json。
+      编译过就一起带到输出目录；没编译过就跳过（版本页会提示先 pio run），
+      而不是让整个 build 失败。
+    -->
+    <None Include="..\..\firmware\.pio\build\seeed_xiao\firmware.bin"
+          Link="Firmware\firmware.bin" CopyToOutputDirectory="PreserveNewest" Condition="Exists('..\..\firmware\.pio\build\seeed_xiao\firmware.bin')" />
+    <None Include="..\..\firmware\.pio\build\seeed_xiao\firmware.json"
+          Link="Firmware\firmware.json" CopyToOutputDirectory="PreserveNewest" Condition="Exists('..\..\firmware\.pio\build\seeed_xiao\firmware.json')" />
   </ItemGroup>
 </Project>

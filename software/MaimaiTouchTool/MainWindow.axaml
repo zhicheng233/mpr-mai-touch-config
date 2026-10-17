@@ -1,7 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:loc="clr-namespace:MaimaiTouchTool.Localization"
         x:Class="MaimaiTouchTool.MainWindow" x:CompileBindings="False"
-        Width="1180" Height="820" MinWidth="1300" MinHeight="620"
+        Width="1180" Height="820" MinWidth="1400" MinHeight="620"
         Title="maimai Touch Tool">
   <Window.Styles>
     <Style Selector="TextBlock.heading"><Setter Property="FontSize" Value="22"/><Setter Property="FontWeight" Value="SemiBold"/></Style>
@@ -621,6 +621,73 @@
               <TextBlock Classes="section" Margin="0" Text="{DynamicResource Mcp.StepLifecycle}"/>
               <TextBlock FontSize="11" Foreground="#A9B1BA" TextWrapping="Wrap" Text="{DynamicResource Mcp.StepLifecycleHint}"/>
               <TextBlock FontSize="11" Foreground="#7F8A95" TextWrapping="Wrap" Text="{DynamicResource Mcp.FullDoc}"/>
+            </StackPanel>
+          </Border>
+        </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+
+      <!-- 固件：四个版本号 + 一键刷写 -->
+      <TabItem Header="{DynamicResource Tab.Firmware}">
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="8" Spacing="16">
+          <StackPanel Spacing="3">
+            <TextBlock Classes="heading" Text="{DynamicResource Fw.Title}"/>
+            <TextBlock Foreground="#A9B1BA" Text="{DynamicResource Fw.Hint}" TextWrapping="Wrap"/>
+          </StackPanel>
+
+          <!-- 四个版本号：来源互不相同，所以分开列，不合并 -->
+          <Border Classes="panel">
+            <StackPanel Spacing="12">
+              <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto" ColumnSpacing="16" RowSpacing="10">
+                <StackPanel Spacing="2">
+                  <TextBlock FontSize="11" Foreground="#7F8A95" Text="{DynamicResource Fw.ToolVersion}"/>
+                  <SelectableTextBlock FontSize="20" FontWeight="SemiBold" Text="{Binding FirmwareInfo.ToolVersion}"/>
+                </StackPanel>
+                <StackPanel Grid.Column="1" Spacing="2">
+                  <TextBlock FontSize="11" Foreground="#7F8A95" Text="{DynamicResource Fw.DeviceVersion}"/>
+                  <SelectableTextBlock FontSize="20" FontWeight="SemiBold" Text="{Binding FirmwareInfo.DeviceVersionText}"/>
+                  <TextBlock FontSize="11" Foreground="#A9B1BA" TextWrapping="Wrap" Text="{Binding FirmwareInfo.DeviceSummary}"/>
+                </StackPanel>
+                <StackPanel Grid.Row="1" Spacing="2">
+                  <TextBlock FontSize="11" Foreground="#7F8A95" Text="{DynamicResource Fw.LocalVersion}"/>
+                  <SelectableTextBlock FontSize="20" FontWeight="SemiBold" Text="{Binding FirmwareInfo.LocalVersionText}"/>
+                  <TextBlock FontSize="11" Foreground="#A9B1BA" TextWrapping="Wrap" Text="{Binding FirmwareInfo.LocalSourceText}"/>
+                </StackPanel>
+                <StackPanel Grid.Row="1" Grid.Column="1" Spacing="2">
+                  <TextBlock FontSize="11" Foreground="#7F8A95" Text="{DynamicResource Fw.RemoteVersion}"/>
+                  <SelectableTextBlock FontSize="20" FontWeight="SemiBold" Text="{Binding FirmwareInfo.RemoteVersionText}"/>
+                  <TextBlock FontSize="11" Foreground="#A9B1BA" TextWrapping="Wrap" Text="{Binding FirmwareInfo.RemoteSourceText}"/>
+                </StackPanel>
+              </Grid>
+              <StackPanel Orientation="Horizontal" Spacing="10">
+                <Button Command="{Binding RefreshFirmwareCommand}" Content="{DynamicResource Fw.Refresh}" ToolTip.Tip="{DynamicResource Fw.RefreshTip}"/>
+                <Border Background="#2A2416" BorderBrush="#8A6E3A" BorderThickness="1" CornerRadius="4" Padding="8,3"
+                        IsVisible="{Binding FirmwareInfo.NeedsUpdate}">
+                  <TextBlock Foreground="#E8CD90" Text="{Binding FirmwareInfo.UpToDateLabel}"/>
+                </Border>
+                <TextBlock VerticalAlignment="Center" FontSize="11" Foreground="#A9B1BA"
+                           Text="{Binding FirmwareInfo.UpToDateLabel}"
+                           IsVisible="{Binding FirmwareInfo.ShowUpToDate}"/>
+              </StackPanel>
+            </StackPanel>
+          </Border>
+
+          <!-- 刷写 -->
+          <Border Classes="panel">
+            <StackPanel Spacing="10">
+              <TextBlock FontSize="11" Foreground="#A9B1BA" TextWrapping="Wrap" Text="{DynamicResource Fw.FlashHint}"/>
+              <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                <Button Classes="primary" Command="{Binding FlashFirmwareCommand}" Content="{Binding FirmwareInfo.FlashLabel}"/>
+                <TextBlock Grid.Column="1" VerticalAlignment="Center" TextWrapping="Wrap"
+                           Text="{Binding FirmwareInfo.FlashStatus}" IsVisible="{Binding FirmwareInfo.HasFlashStatus}"/>
+              </Grid>
+              <Expander Header="{DynamicResource Fw.Log}" IsExpanded="True">
+                <ScrollViewer MaxHeight="260" HorizontalScrollBarVisibility="Auto">
+                  <SelectableTextBlock FontFamily="Consolas,Menlo,monospace" FontSize="11" TextWrapping="NoWrap"
+                                       Text="{Binding FirmwareInfo.FlashLog}"/>
+                </ScrollViewer>
+              </Expander>
             </StackPanel>
           </Border>
         </StackPanel>

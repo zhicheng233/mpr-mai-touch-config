@@ -45,6 +45,9 @@ The maimai game reads this exact format; any rewrite must preserve it.
   2. Note the NEW COM port that appears (the bootloader port; the app COM disappears).
   3. `bossac --port=COM<boot> -U true -e -w -v -R <firmware.bin>` (bossac at `~/.platformio/packages/tool-bossac/bossac.exe`). `-U true` is required.
   4. It boots the app: back on the application COM port, PID `0x802F`.
+- **1200bps touch 的真实条件**（核心 `cores/arduino/USB/CDC.cpp` 决定，不是约定俗成）：`baud == 1200 && (lineState & CDC_LINESTATE_DTR) == 0` → `initiateReset(250)`，否则 `cancelReset()`。**DTR 必须是低的**。之前写 `DtrEnable = true`，驱动会在设置波特率后再拉起 DTR，正好取消掉已排上的复位，表现就是「偶尔刷得动」。正确做法：打开 1200 波特时 `DtrEnable = false`，停留约 500 ms 再关闭。实测第一轮仍有一半概率不生效，**必须允许重试**（4 次足够，单轮等 2 s）。
+- **找 bootloader / 应用口不要靠端口集合差集**：注册表 `HKLM\SYSTEM\CurrentControlSet\Enum\USB\VID_2886&PID_002F&MI_00\...\Device Parameters\PortName` 有 PID→COM 的映射（bootloader `0x002F`、应用 `0x802F`、VID `0x2886`）。但注册表**保留已拔掉设备的历史键**，必须与 `SerialPort.GetPortNames()` 求交集，否则会对着不存在的口跑 bossac（只报 `exit code 1`）。差集法的另一个坑：板子已经在 bootloader 里时，它的口已在上一次快照中，重试会永远找不到。
+- **应用内刷写**：`Firmware/FirmwareFlasher.cs` 全自动跑完「释放串口 → 1200bps 复位 → bossac 擦写校验复位 → 找回应用口」，界面在「固件」标签页（`FirmwareViewModel`）。不用 `pio run -t upload`。`firmware/src/version.h` 是固件版本号唯一来源，`firmware/extra_script.py` 在构建后生成 `firmware.json`，csproj 把 `firmware.bin` + `firmware.json` 拷到输出目录 `Firmware/`。
 - The board's application CDC **resets on serial-port open** (DTR) then runs a ~1 s boot calibration, so a fresh open has no output for ~1 s before the 9-byte game frames start. Do not read immediately after opening.
 - Tool: `dotnet build` / `dotnet run` (Avalonia, .NET 8).
 - **MCP 服务器（两种入口，同一套工具）**：工具定义与分发在 `Mcp/McpToolHost.cs`，背后是一个 `IMcpSession`；`McpServer.cs` 只做 JSON-RPC 分发。暴露 `connect/disconnect/get_config/set_board/set_electrode/set_mapping/apply/save/calibrate/read_telemetry` 共 10 个工具，接入教程见 `Mcp/README.md`。

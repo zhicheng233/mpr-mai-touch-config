@@ -22,6 +22,7 @@ constexpr uint8_t ChannelCount = touchmap::ChannelCount;
 #include "mpr121.h"
 #include "protocol.h"
 #include "touch_state.h"
+#include "version.h"
 
 namespace {
 
@@ -140,6 +141,31 @@ void sendError(uint8_t requestType, uint16_t sequence, uint8_t status) {
   sendFrame(protocol::TypeError, sequence, payload, sizeof(payload));
 }
 
+// VERSION 的 16 字节结果体。四个调用点（正常、STREAMING、CALIBRATING）共用这一份，
+// 免得改版本号时漏掉某处 —— 之前就是硬编码了两遍。
+void sendVersion(const protocol::Frame& frame) {
+  uint8_t result[16] = {
+      firmware_version::ProtocolMajor,
+      firmware_version::ProtocolMinor,
+      firmware_version::Major,
+      firmware_version::Minor,
+      firmware_version::Patch,
+      0, 0, 0, 0,  // capability bits（下面用 VersionCapabilities 填）
+      0, 1,        // MAX_PAYLOAD = 256：低字节在前，所以是 0x00、0x01
+      48,          // diagnostic channel count
+      34,          // mapped game key count
+      4,           // MPR121 board count
+      static_cast<uint8_t>(mode),
+      0,           // identity flags: bit0 = USB serial identity present
+  };
+  const uint32_t caps = firmware_state::VersionCapabilities;
+  result[5] = static_cast<uint8_t>(caps & 0xFF);
+  result[6] = static_cast<uint8_t>((caps >> 8) & 0xFF);
+  result[7] = static_cast<uint8_t>((caps >> 16) & 0xFF);
+  result[8] = static_cast<uint8_t>((caps >> 24) & 0xFF);
+  sendAck(frame.type, frame.sequence, result, sizeof(result));
+}
+
 void clearSession() {
   responseCacheValid = false;
   responseCacheLength = 0;
@@ -210,9 +236,7 @@ void handleFrame(const protocol::Frame& frame) {
   if (!prepareRequest(frame)) return;
   if (mode != FirmwareMode::GAME) lastConfigActivity = currentTime;
   if (frame.type == protocol::TypeVersion && frame.length == 0) {
-    uint8_t result[16] = {1, 1, 0, 1, 0, 0x1F, 0, 0, 0, 0, 1, 48, 34, 4,
-                          static_cast<uint8_t>(mode), 0};
-    sendAck(frame.type, frame.sequence, result, sizeof(result));
+    sendVersion(frame);
     return;
   }
   if (frame.type == protocol::TypeEnterConfig && mode == FirmwareMode::GAME &&
@@ -251,9 +275,7 @@ void handleFrame(const protocol::Frame& frame) {
   }
   if (mode == FirmwareMode::STREAMING || mode == FirmwareMode::CALIBRATING) {
     if (frame.type == protocol::TypeVersion) {
-      uint8_t result[16] = {1, 1, 0, 1, 0, 0x1F, 0, 0, 0, 0, 1, 48, 34, 4,
-                            static_cast<uint8_t>(mode), 0};
-      sendAck(frame.type, frame.sequence, result, sizeof(result));
+      sendVersion(frame);
       return;
     }
     sendError(frame.type, frame.sequence, protocol::StatusBusy);

@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using MaimaiTouchTool.Firmware;
 
 namespace MaimaiTouchTool.Mcp;
 
@@ -39,7 +40,7 @@ public sealed class McpServer(McpToolHost host)
                 {
                     ["protocolVersion"] = "2024-11-05",
                     ["capabilities"] = new JsonObject { ["tools"] = new JsonObject() },
-                    ["serverInfo"] = new JsonObject { ["name"] = "maimai-touch", ["version"] = "0.1.0" },
+                    ["serverInfo"] = new JsonObject { ["name"] = "maimai-touch", ["version"] = ToolInfo.Version },
                 });
             case "notifications/initialized":
                 return null;

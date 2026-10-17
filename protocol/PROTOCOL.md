@@ -327,6 +327,15 @@ identifier in this contract, so when bit 0 of byte 15 is clear the tool keys its
 local JSON by the selected USB endpoint and must warn that it is not portable
 across host ports.
 
+Bytes 2..4 are a semantic version of the firmware build, not of the protocol.
+Its single source is `firmware/src/version.h`; `firmware/extra_script.py`
+regenerates `firmware.json` from that header on every build so the tool can
+show "what is ready to flash" without a second hand-maintained number. Firmware
+0.2.0 is the first build that reports a version different from 0.1.0 while also
+setting capability bit 4: 0.1.0 was reused for both the mapping-less firmware
+and the one that added mapping, so the version alone could never distinguish
+them.
+
 The protocol-1.1 capability bits add bit 4, which means the firmware supports
 the configurable key mapping: config schema 2, the 93-byte config blob, and
 `SET_CFG` accepting 93-byte payloads. A tool that needs mapping must clear

@@ -3,6 +3,7 @@ using System.IO.Ports;
 using System.Text.Json;
 using Avalonia.Threading;
 using System.Windows.Input;
+using MaimaiTouchTool.Firmware;
 using MaimaiTouchTool.Localization;
 using MaimaiTouchTool.Mcp;
 using MaimaiTouchTool.Persistence;
@@ -75,6 +76,8 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
     private bool replayingHistory;
     public TelemetrySessionModel Telemetry { get; } = new();
     public McpGuideModel McpGuide { get; } = new();
+    /// <summary>固件版本页：工具/设备/待刷/远端四条版本，以及一键刷写。</summary>
+    public FirmwareViewModel FirmwareInfo { get; } = new();
 
     // GUI 内嵌的 MCP 端点：开着的时候模型直接复用界面这条串口，不必关程序。
     private readonly McpHttpHost mcpHost = new();
@@ -108,6 +111,10 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
     public bool HasMcpEndpointError => !string.IsNullOrEmpty(mcpEndpointError);
 
     public ICommand ToggleMcpServeCommand { get; }
+    /// <summary>重读本地固件清单 + 查 GitHub 上的最新版本。</summary>
+    public ICommand RefreshFirmwareCommand { get; }
+    /// <summary>把本地 firmware.bin 刷进板子（必要时先断开串口）。</summary>
+    public ICommand FlashFirmwareCommand { get; }
 
     public MainViewModel(Func<string, (SerialTransport Transport, IRequestClient Client)>? transportFactory = null)
     {
@@ -135,6 +142,8 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
         FillBoardsCommand = new RelayCommand(FillBoards);
         RollbackMappingCommand = new RelayCommand(RollbackMappingSnapshot);
         ToggleMcpServeCommand = new AsyncCommand(ToggleMcpServeAsync);
+        RefreshFirmwareCommand = new AsyncCommand(RefreshFirmwareAsync);
+        FlashFirmwareCommand = new AsyncCommand(FlashFirmwareAsync, () => FirmwareInfo.CanFlash);
         StepUpCommand = new RelayCommand(() => Editor.CycleStep(1));
         StepDownCommand = new RelayCommand(() => Editor.CycleStep(-1));
         StartGuidedCommand = new AsyncCommand(StartGuidedAsync, () => IsConnected && !IsBusy && guidedCancellation is null && !IsStreaming && !IsGameMode && !IsMappingRunning);
@@ -169,6 +178,7 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
         OnPropertyChanged(nameof(MappingLiveDepthLabel));
         OnPropertyChanged(nameof(McpServeLabel));
         OnPropertyChanged(nameof(McpToggleLabel));
+        FirmwareInfo.RaiseLocalized();
     }
 
     public ObservableCollection<string> Ports { get; } = [];
@@ -208,7 +218,7 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
     public ICommand FinishMappingKeyCommand { get; }
     public ICommand CancelMappingCommand { get; }
     public ObservableCollection<TouchKeyModel> TouchKeys { get; } = TouchTestModelFactory.Create();
-    public string SelectedPort { get => selectedPort; set { selectedPort = value; OnPropertyChanged(); RefreshCommands(); } }
+    public string SelectedPort { get => selectedPort; set { selectedPort = value; OnPropertyChanged(); FirmwareInfo.SetTargetPort(value); RefreshCommands(); } }
     public string StatusMessage { get => statusMessage; private set { statusMessage = value; OnPropertyChanged(); } }
     public ConnectionStatus Status { get => status; private set { status = value; OnPropertyChanged(); OnPropertyChanged(nameof(StatusLabel)); OnPropertyChanged(nameof(IsConnected)); RefreshCommands(); } }
     public string StatusLabel => Status switch { ConnectionStatus.Connected => Localizer.Instance["Status.Connected"], ConnectionStatus.Connecting => Localizer.Instance["Status.Connecting"], ConnectionStatus.Error => Localizer.Instance["Status.Error"], ConnectionStatus.Unsupported => Localizer.Instance["Status.Unsupported"], _ => Localizer.Instance["Status.Disconnected"] };
@@ -409,6 +419,11 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
             var ack = ReadAck(version, ProtocolConstants.FrameType.Version);
             if (ack.Result.Length != 16 || ack.Result[0] != 1 || ack.Result[9] != 0 || ack.Result[10] != 1 || ack.Result[11] != 48 || ack.Result[12] != 34 || ack.Result[13] != 4) throw new NotSupportedException(Localizer.Instance["Msg.Unsupported"]);
             var capabilities = (uint)(ack.Result[5] | (ack.Result[6] << 8) | (ack.Result[7] << 16) | (ack.Result[8] << 24));
+            // 先把版本号记下来再判能力位：连接被拒时界面也要能显示"设备上是哪个版本"，
+            // 否则用户只看到"固件太旧"却不知道板子上到底是什么。
+            FirmwareInfo.DeviceProtocol = $"{ack.Result[0]}.{ack.Result[1]}";
+            FirmwareInfo.DeviceVersion = new FirmwareVersion(ack.Result[2], ack.Result[3], ack.Result[4]);
+            FirmwareInfo.HasKeyMappingCapability = (capabilities & ProtocolConstants.CapabilityKeyMapping) != 0;
             if ((capabilities & ProtocolConstants.CapabilityKeyMapping) == 0) throw new NotSupportedException(Localizer.Instance["Msg.FirmwareTooOld"]);
             await EnterConfigAsync(token);
             var deviceConfig = await ReadConfigWithRecoveryAsync(token);
@@ -679,6 +694,59 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
         IsMcpServing = false;
     }
 
+    /// <summary>
+    /// 重读本地固件清单，并查一次 GitHub 上的最新版本。
+    /// 远端查询失败不弹错误框 —— 版本页里直接写明失败原因就够了。
+    /// </summary>
+    private async Task RefreshFirmwareAsync()
+    {
+        FirmwareInfo.RefreshLocalManifest();
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        await FirmwareInfo.CheckRemoteAsync(cts.Token);
+    }
+
+    /// <summary>
+    /// 把本地 firmware.bin 刷进板子。
+    ///
+    /// 串口必须先释放：刷写期间任何还开着这个口的程序都会让 1200bps 复位失效。
+    /// 所以这里先正常断开（发 EXIT_CFG 让固件回到游戏模式，再关端口），
+    /// 刷完把端口选回刷写后的那个口，但**不自动重连** —— 连接动作留给用户确认。
+    /// </summary>
+    private async Task FlashFirmwareAsync()
+    {
+        var port = SelectedPort;
+        if (string.IsNullOrWhiteSpace(port))
+        {
+            FirmwareInfo.ReportFlashResult(Localizer.Instance["Fw.SelectPortFirst"], failed: true);
+            return;
+        }
+
+        if (IsConnected) await DisconnectAsync();
+
+        StatusMessage = Localizer.Instance["Fw.Flashing"];
+        try
+        {
+            var ok = await FirmwareInfo.FlashAsync(port, CancellationToken.None);
+            StatusMessage = ok ? Localizer.Instance["Fw.FlashDone"] : Localizer.Instance["Fw.FlashFailed"];
+            if (!ok) return;
+
+            // 刷完固件会重新枚举，端口号可能变了；刷新列表并把选中项指到新口。
+            RefreshPorts();
+            var reported = FirmwareInfo.LastFlashPort;
+            if (!string.IsNullOrEmpty(reported) && Ports.Contains(reported)) SelectedPort = reported;
+            else if (Ports.Contains(port)) SelectedPort = port;
+
+            // 版本号要重新连上才会更新，先清掉旧的，免得界面显示刷写前的数字。
+            FirmwareInfo.DeviceVersion = FirmwareVersion.Unknown;
+            FirmwareInfo.DeviceProtocol = string.Empty;
+            FirmwareInfo.HasKeyMappingCapability = false;
+        }
+        finally
+        {
+            RefreshCommands();
+        }
+    }
+
     private void RefreshCommands()
     {
         OnPropertyChanged(nameof(IsCalibrating));
@@ -687,7 +755,7 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
         OnPropertyChanged(nameof(IsGameMode));
         OnPropertyChanged(nameof(IsGameModeActive));
         OnPropertyChanged(nameof(CanToggleGameMode));
-        foreach (var command in new[] { RefreshPortsCommand, ConnectCommand, DisconnectCommand, CancelConnectCommand, ApplyCommand, SaveCommand, ReadbackCommand, RestoreDefaultsCommand, UseDeviceCommand, UseLocalCommand, CalibrateCommand, CancelCalibrationCommand, StartStreamCommand, StopStreamCommand, GameModeCommand, StopGameModeCommand, StartGuidedCommand, SkipGuidedKeyCommand, FinishGuidedKeyCommand, CancelGuidedCommand, ApplyGuidedResultCommand, DiscardGuidedResultCommand, StartMappingCommand, SkipMappingKeyCommand, FinishMappingKeyCommand, CancelMappingCommand, UndoMappingCommand, RedoMappingCommand, FillBoardsCommand, RollbackMappingCommand, ToggleMcpServeCommand })
+        foreach (var command in new[] { RefreshPortsCommand, ConnectCommand, DisconnectCommand, CancelConnectCommand, ApplyCommand, SaveCommand, ReadbackCommand, RestoreDefaultsCommand, UseDeviceCommand, UseLocalCommand, CalibrateCommand, CancelCalibrationCommand, StartStreamCommand, StopStreamCommand, GameModeCommand, StopGameModeCommand, StartGuidedCommand, SkipGuidedKeyCommand, FinishGuidedKeyCommand, CancelGuidedCommand, ApplyGuidedResultCommand, DiscardGuidedResultCommand, StartMappingCommand, SkipMappingKeyCommand, FinishMappingKeyCommand, CancelMappingCommand, UndoMappingCommand, RedoMappingCommand, FillBoardsCommand, RollbackMappingCommand, ToggleMcpServeCommand, FlashFirmwareCommand })
         {
             if (command is AsyncCommand asyncCommand) asyncCommand.Refresh();
             else if (command is RelayCommand relayCommand) relayCommand.Refresh();
