@@ -61,8 +61,13 @@ public sealed class McpToolHostTests
 
         public Task<string> CalibrateAsync(CancellationToken cancellationToken) { Calls.Add("calibrate"); return Task.FromResult("calibrated"); }
 
-        public Task<string> ReadTelemetryAsync(int durationMs, CancellationToken cancellationToken) =>
-            Task.FromResult($"telemetry {durationMs}");
+        public Task<string> ReadTelemetryAsync(TelemetryRequest request, CancellationToken cancellationToken)
+        {
+            LastTelemetry = request;
+            return Task.FromResult($"telemetry {request.DurationMs}");
+        }
+
+        public TelemetryRequest LastTelemetry { get; private set; }
 
         public void StageBoard(int boardIndex, BoardEdit edit)
         {
@@ -303,6 +308,75 @@ public sealed class McpToolHostTests
         Assert.Equal("telemetry 1000", text);
     }
 
+    // 模型需要能直接问「某个键/某个通道这一段时间怎么变的」，而不是自己扫 48 个数。
+    [Fact]
+    public async Task ReadTelemetryAcceptsAKeyToFocus()
+    {
+        var (host, session) = NewHost();
+        var (_, isError) = await host.CallAsync("read_telemetry", Args(("key", "B3")), CancellationToken.None);
+
+        Assert.False(isError);
+        Assert.Equal(10, session.LastTelemetry.KeyIndex);   // B3 是第 11 个键（0 基下标 10）
+        Assert.Null(session.LastTelemetry.Board);
+    }
+
+    [Fact]
+    public async Task ReadTelemetryAcceptsABoardAndChannel()
+    {
+        var (host, session) = NewHost();
+        var (_, isError) = await host.CallAsync(
+            "read_telemetry", Args(("board", 2), ("channel", 7)), CancellationToken.None);
+
+        Assert.False(isError);
+        Assert.Equal(2, session.LastTelemetry.Board);
+        Assert.Equal(7, session.LastTelemetry.Channel);
+        Assert.Null(session.LastTelemetry.KeyIndex);
+    }
+
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(5, 0)]
+    public async Task ReadTelemetryRejectsOutOfRangeBoards(int board, int channel)
+    {
+        var (host, _) = NewHost();
+        var (text, isError) = await host.CallAsync(
+            "read_telemetry", Args(("board", board), ("channel", channel)), CancellationToken.None);
+
+        Assert.True(isError);
+        Assert.Contains("board must be 1-4", text);
+    }
+
+    [Fact]
+    public async Task ReadTelemetryRejectsAChannelWithoutABoard()
+    {
+        var (host, _) = NewHost();
+        var (text, isError) = await host.CallAsync("read_telemetry", Args(("channel", 3)), CancellationToken.None);
+
+        Assert.True(isError);
+        Assert.Contains("channel needs board", text);
+    }
+
+    // get_config 的 keyMap 必须自带键名和通道下标，否则模型得自己算 board*12+channel。
+    [Fact]
+    public void ConfigJsonNamesEveryKeyAndChannel()
+    {
+        var json = McpToolHost.ConfigJson(ConfigBlob.Defaults());
+
+        var keyMap = json["keyMap"]!.AsArray();
+        Assert.Equal(34, keyMap.Count);
+        Assert.Equal("A1", keyMap[0]!["key"]!.GetValue<string>());
+        // A1 默认打包值 52 → board 4 (0x5D)、通道 4、通道下标 3*12+4 = 40。
+        Assert.Equal(4, keyMap[0]!["board"]!.GetValue<int>());
+        Assert.Equal(4, keyMap[0]!["channel"]!.GetValue<int>());
+        Assert.Equal(40, keyMap[0]!["channelIndex"]!.GetValue<int>());
+
+        var channels = json["channels"]!.AsArray();
+        Assert.Equal(48, channels.Count);
+        Assert.Equal("A8", channels[0]!.GetValue<string>());
+        Assert.Equal("A1", channels[40]!.GetValue<string>());
+        Assert.Equal("unmapped", channels[8]!.GetValue<string>());
+    }
+
     [Fact]
     public async Task ConcurrentCallsAreSerializedSoTheyCannotInterleaveOnThePort()
     {
@@ -347,6 +421,12 @@ public sealed class McpToolHostTests
 
         var telemetry = byName["read_telemetry"]["inputSchema"]!;
         Assert.Empty(telemetry["required"]!.AsArray());
+        // 可选参数里必须能指定聚焦通道，否则模型拿不到「某个通道这一段时间的变化」。
+        var telemetryParams = telemetry["properties"]!.AsObject().Select(p => p.Key).ToArray();
+        Assert.Contains("durationMs", telemetryParams);
+        Assert.Contains("key", telemetryParams);
+        Assert.Contains("board", telemetryParams);
+        Assert.Contains("channel", telemetryParams);
     }
 
     [Fact]

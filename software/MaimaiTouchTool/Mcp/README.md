@@ -209,7 +209,7 @@ Invoke-RestMethod -Uri "http://127.0.0.1:8477/mcp" -Method Post -ContentType "ap
 | `apply` | — | SET_CFG + APPLY_CFG + 读回校验，暂存生效 |
 | `save` | — | SAVE_CFG，写入 EEPROM（掉电保持） |
 | `calibrate` | — | 触发自动校准，等 CAL_DONE（最长 61 s） |
-| `read_telemetry` | `durationMs`（默认 1000） | 流式读遥测，返回 48 通道 filtered/baseline + 触摸位图 |
+| `read_telemetry` | `durationMs`（默认 1000，上限 60000）；`key`(A1..E8) 或 `board`(1-4)+`channel`(0-11) 可选 | 读一段时间的遥测，汇总每通道的变化，并给出通道与键名的对照关系 |
 
 **暂存 → 应用 → 保存** 是三段式：`set_*` 只改内存里的 staged 副本，
 `apply` 才下发到板子，`save` 才落 EEPROM。不 `apply` 就 `get_config` 看到的是旧值。
@@ -231,12 +231,20 @@ get_config()
 {
   "boards": [{"baseThreshold":20,"sensOffset":0,"touchDebounce":1,"releaseDebounce":1,"sfi":2,"esi":0}, ...(4 块)],
   "electrodeOffsets": [-3,-3,-3, ...(34 个)],
-  "keyMap": [{"board":4,"channel":4}, {"board":4,"channel":0}, ...(34 个)]
+  "keyMap": [
+    {"key":"A1","board":4,"channel":4,"channelIndex":40},
+    {"key":"A2","board":4,"channel":0,"channelIndex":36},
+    ...(34 个)
+  ],
+  "channels": ["A8","B8","D8", ...(48 个，未映射为 "unmapped")]
 }
 ```
 
-`keyMap` 按**键序**排列（A1..A8, B1..B8, C1..C2, D1..D8, E1..E8），
-`board` 是 1-4（= 地址 0x5A + board-1），`channel` 是 0-11。
+`keyMap` 按**键序**排列（A1..A8, B1..B8, C1..C2, D1..D8, E1..E8），每项自带 `key` 名，
+`board` 是 1-4（= 地址 0x5A + board-1），`channel` 是 0-11，
+`channelIndex` 是 `board*12+channel`，与 `read_telemetry` 的数组下标一一对应。
+
+`channels` 是反查表：下标 `board*12+channel` → 键名。看遥测时直接用它对。
 
 ### 调灵敏度
 
@@ -247,12 +255,41 @@ connect(port="COM10")
 set_board(board=2, baseThreshold=24)      # 只改这一项，其余不动
 set_electrode(key="C1", offset=-8)        # 单独把这个键调灵一点
 apply()
-read_telemetry(durationMs=2000)           # 看 filtered 掉多少
+read_telemetry(key="C1", durationMs=2000) # 只看 C1 这个键的通道怎么变
 save()                                    # 满意了再落盘
 ```
 
 运行时阈值模型：`touchDelta = clamp(baseThreshold + sensOffset + electrodeOffset, 1, 1023)`，
 芯片寄存器写 `ceil(touchDelta/4)`。
+
+### 读遥测
+
+`read_telemetry` 的返回是**一段时间内的汇总**，不是某一帧快照：
+
+| 字段 | 含义 |
+| --- | --- |
+| `keys` | 48 个元素，下标 `board*12+channel`，值是键名（未映射为 `unmapped`）。有这张表就不用自己算通道归属 |
+| `threshold` | 每个通道的判定阈值（固件同一套算法）。拿 `maxDrop` 跟它比就知道这个键够不够灵敏 |
+| `maxDrop` | 每个通道 filtered 相对 baseline 的最大下降量。判断灵敏度的核心数字 |
+| `touchedFrames` | 每个通道被判为触摸的帧数 |
+| `filtered` / `baseline` | 末帧数值，用来看通道是否在线、基线是否异常（如无 I2C 时为 0） |
+| `touchedKeys` | 这段时间里被按下的键及帧数 |
+| `focus` | 指定了 `key` 或 `board+channel` 时才有：该通道只在数值变化时记录的 `[时间戳, filtered, baseline, 触摸]` 序列 |
+
+判读要点：
+
+- `maxDrop` 明显小于 `threshold` → 这个键按不出来，要么调低阈值，要么电极有问题。
+- `maxDrop` 远大于 `threshold`，但 `touchedFrames` 为 0 且静止时也在动 → 噪声/误触。
+- 刚开流的前约 0.5 秒 baseline 还在从 704 爬到 720（`STREAM_START` 会重写 ECR），
+  这段时间的绝对值别当参考；`maxDrop` 是逐帧算的，不受影响。
+
+`focus` 按**当前映射**解析：A1 被挪到别的通道后，`key="A1"` 会自动跟过去。
+映射改过就用键名，不要用写死的板号/通道号。
+
+```
+read_telemetry(key="A1", durationMs=3000)          # 看 A1 怎么变的
+read_telemetry(board=1, channel=4, durationMs=2000) # 直接看某个物理通道
+```
 
 ### 改映射
 
@@ -266,9 +303,8 @@ apply()
 save()
 ```
 
-> 单次 `set_mapping` 要求最终全表仍合法。要交换两个键，得一次性规划好，
-> 或者先把其中一个挪到空通道（48 个通道里有 14 个是空的）。
-> 工具里那套「自动对调」逻辑在 `ConfigurationEditorModel.AssignChannel`，MCP 侧没有等价封装。
+> `set_mapping` 要求最终全表仍合法。目标通道已被别的键占着时默认报错，
+> 传 `swap=true` 则两个键对调（34 键始终一一对应，不会丢键）。
 
 ### 校准
 

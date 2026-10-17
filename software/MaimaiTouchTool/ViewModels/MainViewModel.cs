@@ -353,31 +353,22 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
     }
 
     /// <summary>MCP 读遥测：复用 GUI 的那条串口。界面正在流式输出时拒绝，避免两路读循环互相抢帧。</summary>
-    internal async Task<string> McpReadTelemetryAsync(int durationMs, CancellationToken cancellationToken)
+    internal async Task<string> McpReadTelemetryAsync(TelemetryRequest request, CancellationToken cancellationToken)
     {
         if (transport is null) throw new InvalidOperationException("not connected; call connect first");
         if (IsStreaming || IsGameMode) throw new InvalidOperationException(
             "the GUI is already streaming; stop the debug stream / game mode in the app first");
-        var last = default(DebugFrame?);
-        var count = 0;
+        // 用「已应用」的配置解析通道→键名：GUI 里可能有未应用的暂存修改，
+        // 但遥测来自板子上正在跑的配置，对齐它才不会错位。
+        var report = new TelemetryAccumulator(applied, request);
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        cts.CancelAfter(durationMs);
+        cts.CancelAfter(request.DurationMs);
         try
         {
-            await transport.StreamDebugEventsAsync(100, sample => { last = sample.Frame; count++; }, _ => { }, cts.Token, _ => { });
+            await transport.StreamDebugEventsAsync(100, sample => report.Add(sample.Frame), _ => { }, cts.Token, _ => { });
         }
         catch (OperationCanceledException) { }
-        if (last is not { } frame) return "no telemetry frames received";
-        return JsonSerializer.Serialize(new
-        {
-            frames = count,
-            durationMs,
-            touchBits = frame.TouchBits,
-            filtered = frame.Filtered,
-            baseline = frame.Baseline,
-            chipStatus = frame.ChipStatus,
-            i2cErrors = frame.I2cErrors,
-        });
+        return JsonSerializer.Serialize(report.ToJson(request.DurationMs));
     }
 
     public void MarkDirty()

@@ -67,8 +67,8 @@ public sealed class GuiSession(MainViewModel viewModel) : IMcpSession
             : $"calibration failed (reason={reason})";
     });
 
-    public Task<string> ReadTelemetryAsync(int durationMs, CancellationToken cancellationToken) =>
-        OnUiAsync(() => vm.McpReadTelemetryAsync(durationMs, cancellationToken));
+    public Task<string> ReadTelemetryAsync(TelemetryRequest request, CancellationToken cancellationToken) =>
+        OnUiAsync(() => vm.McpReadTelemetryAsync(request, cancellationToken));
 
     public void StageBoard(int boardIndex, BoardEdit edit) => OnUi(() => vm.McpStageBoard(boardIndex, edit));
 

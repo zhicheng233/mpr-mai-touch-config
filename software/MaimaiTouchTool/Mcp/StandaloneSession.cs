@@ -116,29 +116,18 @@ public sealed class StandaloneSession : IMcpSession, IAsyncDisposable
             : $"calibration failed (reason={done.Reason})";
     }
 
-    public async Task<string> ReadTelemetryAsync(int durationMs, CancellationToken cancellationToken)
+    public async Task<string> ReadTelemetryAsync(TelemetryRequest request, CancellationToken cancellationToken)
     {
         if (transport is null) throw new InvalidOperationException("not connected");
-        var last = default(DebugFrame?);
-        var count = 0;
+        var report = new TelemetryAccumulator(applied, request);
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        cts.CancelAfter(durationMs);
+        cts.CancelAfter(request.DurationMs);
         try
         {
-            await transport.StreamDebugEventsAsync(100, sample => { last = sample.Frame; count++; }, _ => { }, cts.Token, _ => { });
+            await transport.StreamDebugEventsAsync(100, sample => report.Add(sample.Frame), _ => { }, cts.Token, _ => { });
         }
         catch (OperationCanceledException) { }
-        if (last is not { } frame) return "no telemetry frames received";
-        return System.Text.Json.JsonSerializer.Serialize(new
-        {
-            frames = count,
-            durationMs,
-            touchBits = frame.TouchBits,
-            filtered = frame.Filtered,
-            baseline = frame.Baseline,
-            chipStatus = frame.ChipStatus,
-            i2cErrors = frame.I2cErrors,
-        });
+        return System.Text.Json.JsonSerializer.Serialize(report.ToJson(request.DurationMs));
     }
 
     public void StageBoard(int boardIndex, BoardEdit edit)

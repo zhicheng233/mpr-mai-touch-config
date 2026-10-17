@@ -31,7 +31,7 @@ public interface IMcpSession
     Task<string> ApplyAsync(CancellationToken cancellationToken);
     Task<string> SaveAsync(CancellationToken cancellationToken);
     Task<string> CalibrateAsync(CancellationToken cancellationToken);
-    Task<string> ReadTelemetryAsync(int durationMs, CancellationToken cancellationToken);
+    Task<string> ReadTelemetryAsync(TelemetryRequest request, CancellationToken cancellationToken);
 
     void StageBoard(int boardIndex, BoardEdit edit);
     void StageElectrode(int keyIndex, int offset);
@@ -78,8 +78,11 @@ public sealed class McpToolHost
         Tool("apply", "SET_CFG + APPLY_CFG + 读回校验，使暂存配置生效"),
         Tool("save", "SAVE_CFG，把已应用配置写入 EEPROM"),
         Tool("calibrate", "触发自动校准并等待结果"),
-        Tool("read_telemetry", "流式读取调试遥测若干毫秒，返回 48 通道 filtered/baseline 与触摸位图摘要",
-            Opt("durationMs", ("integer", "采样时长（毫秒），默认 1000"))),
+        Tool("read_telemetry", "流式读取调试遥测若干毫秒，返回 48 通道 filtered/baseline 的变化范围、最大下降量、触摸帧数，以及通道→键名对照表",
+            Opt("durationMs", ("integer", "采样时长（毫秒），默认 1000，上限 60000")),
+            Opt("key", ("string", "只看这个键的通道逐次变化，如 A1")),
+            Opt("board", ("integer", "只看这块板（1-4）的某个通道，需与 channel 一起用")),
+            Opt("channel", ("integer", "通道号 0-11，需与 board 一起用"))),
     ];
 
     public static IReadOnlyList<(string Name, string Description)> Describe() =>
@@ -169,7 +172,15 @@ public sealed class McpToolHost
     private async Task<string> ReadTelemetryAsync(JsonObject args, CancellationToken cancellationToken)
     {
         var durationMs = args.ContainsKey("durationMs") ? args["durationMs"]!.GetValue<int>() : 1000;
-        return await Session.ReadTelemetryAsync(Math.Clamp(durationMs, 100, 60000), cancellationToken);
+        // 聚焦通道二选一：给键名，或给板号+通道号。两者都给时键名优先（键才是有意义的标识）。
+        int? keyIndex = args.ContainsKey("key") ? KeyIndex(args["key"]!.GetValue<string>()) : null;
+        int? board = args.ContainsKey("board") ? args["board"]!.GetValue<int>() : null;
+        int? channel = args.ContainsKey("channel") ? args["channel"]!.GetValue<int>() : null;
+        if (board is < 1 or > 4) throw new InvalidOperationException("board must be 1-4");
+        if (channel is < 0 or > 11) throw new InvalidOperationException("channel must be 0-11");
+        if (channel is not null && board is null) throw new InvalidOperationException("channel needs board too (or pass key instead)");
+        var request = new TelemetryRequest(Math.Clamp(durationMs, 100, 60000), keyIndex, board, channel);
+        return await Session.ReadTelemetryAsync(request, cancellationToken);
     }
 
     /// <summary>键名 → 键序（A1…E8），大小写不敏感。</summary>
@@ -188,8 +199,17 @@ public sealed class McpToolHost
             ["touchDebounce"] = b.TouchDebounce, ["releaseDebounce"] = b.ReleaseDebounce,
             ["sfi"] = b.Sfi, ["esi"] = b.Esi }).ToArray()),
         ["electrodeOffsets"] = new JsonArray(config.ElectrodeOffsets.Select(o => (JsonNode)o).ToArray()),
-        ["keyMap"] = new JsonArray(config.Mapping.Select(p => (JsonNode)new JsonObject {
-            ["board"] = KeyMapping.BoardOf(p) + 1, ["channel"] = KeyMapping.ChannelOf(p) }).ToArray()),
+        // keyMap 按键序（A1…E8）给，同时带上 key 名和它在 48 通道里的下标，
+        // 这样模型不用自己算 board*12+channel 就能把遥测通道对上键。
+        ["keyMap"] = new JsonArray(config.Mapping.Select((packed, index) => (JsonNode)new JsonObject {
+            ["key"] = KeyMapping.KeyLabels[index],
+            ["board"] = KeyMapping.BoardOf(packed) + 1,
+            ["channel"] = KeyMapping.ChannelOf(packed),
+            ["channelIndex"] = KeyMapping.ChannelIndexOf(packed),
+        }).ToArray()),
+        // 48 通道 → 键名（未映射为 "unmapped"），与 read_telemetry 的 keys 表同构。
+        ["channels"] = new JsonArray(KeyMapping.ChannelLabels(KeyMapping.Clone(config.Mapping))
+            .Select(label => (JsonNode)label).ToArray()),
     };
 
     /// <summary>

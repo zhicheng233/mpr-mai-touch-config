@@ -273,7 +273,7 @@ public sealed class Localizer : INotifyPropertyChanged
         ["Mcp.Tool.apply"] = "SET_CFG + APPLY_CFG and a readback check, so the staged values take effect.",
         ["Mcp.Tool.save"] = "SAVE_CFG: write the applied configuration to EEPROM.",
         ["Mcp.Tool.calibrate"] = "Trigger automatic calibration and wait for CAL_DONE.",
-        ["Mcp.Tool.read_telemetry"] = "Stream the debug feed for a few hundred ms. Returns per-channel filtered/baseline and the touch bitmap.",
+        ["Mcp.Tool.read_telemetry"] = "Stream the debug feed and summarise how each channel moved: threshold, largest drop, touched frames, and a channel-to-key table. Pass key (e.g. A1) or board+channel to get that channel's change series.",
 
         // Firmware tab. Four versions come from four different places, so they are
         // labelled separately: tool, device, local build, remote release.
@@ -666,7 +666,7 @@ public sealed class Localizer : INotifyPropertyChanged
         ["Mcp.Tool.apply"] = "SET_CFG + APPLY_CFG 并读回校验，让暂存值生效。",
         ["Mcp.Tool.save"] = "SAVE_CFG：把已应用配置写进 EEPROM。",
         ["Mcp.Tool.calibrate"] = "触发自动校准，等 CAL_DONE。",
-        ["Mcp.Tool.read_telemetry"] = "流式读几百毫秒调试数据。返回各通道 filtered/baseline 和触摸位图。",
+        ["Mcp.Tool.read_telemetry"] = "读一段时间的调试数据，汇总每个通道怎么变的：阈值、最大下降量、触摸帧数，并给出通道到键名的对照表。传 key（如 A1）或 board+channel 可拿到该通道的逐次变化序列。",
 
         ["Fw.Title"] = "固件",
         ["Fw.Hint"] = "四个版本号来自四个不同的地方，刷之前先对照一遍。",
