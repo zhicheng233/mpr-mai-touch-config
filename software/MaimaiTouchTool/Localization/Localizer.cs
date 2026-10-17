@@ -152,9 +152,7 @@ public sealed class Localizer : INotifyPropertyChanged
         ["Config.Mapping.Unique"] = "OK",
         ["Config.Mapping.BoardN"] = "Board {0}",
         ["Config.Mapping.ChannelN"] = "CH{0:00}",
-        ["Config.Mapping.Address"] = "Address",
         ["Config.Mapping.Unassigned"] = "Unassigned",
-        ["Config.Mapping.Assign"] = "Assign key",
         ["Config.Mapping.SwapHint"] = "Picking a key that already sits on another channel swaps the two, so no key is ever lost.",
         ["Config.Mapping.Undo"] = "Undo",
         ["Config.Mapping.Redo"] = "Redo",
@@ -168,8 +166,6 @@ public sealed class Localizer : INotifyPropertyChanged
         ["Config.Mapping.Fill"] = "Fill",
         ["Config.Mapping.Filled"] = "Filled the mapping; {0} keys placed.",
         ["Config.Mapping.List"] = "Channel list",
-        ["Config.Mapping.LegendAssigned"] = "Assigned",
-        ["Config.Mapping.LegendEmpty"] = "Empty",
 
         // Mapping auto-learn
         ["Mapping.Title"] = "Auto-learn mapping",
@@ -463,9 +459,7 @@ public sealed class Localizer : INotifyPropertyChanged
         ["Config.Mapping.Unique"] = "正常",
         ["Config.Mapping.BoardN"] = "板 {0}",
         ["Config.Mapping.ChannelN"] = "通道 {0:00}",
-        ["Config.Mapping.Address"] = "地址",
         ["Config.Mapping.Unassigned"] = "未分配",
-        ["Config.Mapping.Assign"] = "分配按键",
         ["Config.Mapping.SwapHint"] = "选中一个已在别的通道上的按键会与当前通道对调，因此不会丢键。",
         ["Config.Mapping.Undo"] = "撤销",
         ["Config.Mapping.Redo"] = "重做",
@@ -479,8 +473,6 @@ public sealed class Localizer : INotifyPropertyChanged
         ["Config.Mapping.Fill"] = "填充",
         ["Config.Mapping.Filled"] = "已填充映射，共放置 {0} 个按键。",
         ["Config.Mapping.List"] = "通道列表",
-        ["Config.Mapping.LegendAssigned"] = "已分配",
-        ["Config.Mapping.LegendEmpty"] = "空",
 
         ["Mapping.Title"] = "自动学习映射",
         ["Mapping.Hint"] = "工具会按板序（板 1 → 板 4，通道 0 → 11）逐个提示你按住某个按键，并在 48 个通道里找出响应的那个。无需事先知道当前映射。",
