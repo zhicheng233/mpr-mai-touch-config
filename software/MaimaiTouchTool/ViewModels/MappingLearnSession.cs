@@ -17,13 +17,13 @@ public sealed record MappingLearnOutcome(
 }
 
 /// <summary>
-/// 映射自动学习状态机：先测静止基线，再逐键提示用户按住该物理电极，
+/// 映射自动学习状态机：先测静止基线，再按按键顺序（A1 → E8）逐键提示用户按住该物理电极，
 /// 在全部 48 个通道里找下降量最大的那个作为该键的通道（无需知道当前映射）。
 /// 无 UI 依赖，可直接单测；时间单位为毫秒，调用方每次收到调试帧就 PushFrame。
 /// </summary>
 public sealed class MappingLearnSession
 {
-    public sealed record TargetKey(int KeyIndex, string Label, int Board = -1, int Channel = -1);
+    public sealed record TargetKey(int KeyIndex, string Label);
 
     private const double StartThresholdMin = 12;
     private const double StartThresholdNoiseFactor = 3.0;
@@ -176,11 +176,12 @@ public sealed class MappingLearnSession
     }
 
     /// <summary>
-    /// 按板序生成学习目标：板 1 → 板 4，每块板通道 0 → 11，只包含该通道上已绑定的键。
+    /// 按按键顺序生成学习目标：A1 → A8、B1 → B8、C1、C2、D1 → D8、E1 → E8。
+    /// 界面提示只给键名，不提示板号/通道，学到的通道由工具自己测出来。
     /// </summary>
-    public static List<TargetKey> BuildBoardOrderTargets(IEnumerable<(int KeyIndex, string Label, int Slot, int Channel)> keys)
-        => keys.OrderBy(k => k.Slot).ThenBy(k => k.Channel)
-               .Select(k => new TargetKey(k.KeyIndex, k.Label, k.Slot, k.Channel)).ToList();
+    public static List<TargetKey> BuildKeyOrderTargets(IEnumerable<(int KeyIndex, string Label)> keys)
+        => keys.OrderBy(k => k.KeyIndex)
+               .Select(k => new TargetKey(k.KeyIndex, k.Label)).ToList();
 
     private void RecordCurrentKey(bool pressed)
     {

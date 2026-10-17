@@ -1079,8 +1079,8 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
     private async Task StartMappingAsync()
     {
         if (transport is null) { StatusMessage = Localizer.Instance["Msg.StreamUnavailable"]; return; }
-        var targets = MappingLearnSession.BuildBoardOrderTargets(
-            Editor.KeyMappings.Select(m => (m.Index, m.Label, m.Board, m.Channel)));
+        var targets = MappingLearnSession.BuildKeyOrderTargets(
+            Editor.KeyMappings.Select(m => (m.Index, m.Label)));
         if (targets.Count == 0) { StatusMessage = Localizer.Instance["Mapping.NoTargets"]; return; }
         mappingSession = new MappingLearnSession(targets);
         mappingCancellation = new CancellationTokenSource();
@@ -1152,10 +1152,8 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
             return string.Format(Localizer.Instance["Mapping.BaselineStep"], Math.Round(session.BaselineProgress * 100));
         var target = session.CurrentTarget;
         if (target is null) return Localizer.Instance["Mapping.Done"];
-        var key = Editor.KeyMappings[target.KeyIndex];
-        var board = Editor.BoardMappings.FirstOrDefault(b => b.Slot == key.Board);
         return string.Format(Localizer.Instance["Mapping.KeyStep"], target.Label,
-            board?.Title ?? string.Format(Localizer.Instance["Config.Mapping.BoardN"], key.Board + 1), key.Channel, session.CurrentIndex + 1, session.Outcomes.Count);
+            session.CurrentIndex + 1, Editor.KeyMappings.Count);
     }
 
     private void CompleteMapping()

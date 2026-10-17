@@ -382,16 +382,16 @@ public sealed class BoardGroupedMappingTests
     }
 
     [Fact]
-    public void LearnTargetsAreOrderedByBoardThenChannel()
+    public void LearnTargetsAreOrderedByKeyLabel()
     {
-        var targets = MappingLearnSession.BuildBoardOrderTargets(
+        var targets = MappingLearnSession.BuildKeyOrderTargets(
         [
-            (16, "C1", 1, 0),   // board 1 channel 0
-            (0, "A1", 3, 4),    // board 3 channel 4
-            (8, "B1", 0, 5),    // board 0 channel 5
+            (16, "C1"),
+            (0, "A1"),
+            (8, "B1"),
         ]);
-        Assert.Equal(["B1", "C1", "A1"], targets.Select(t => t.Label).ToArray());
-        Assert.Equal([0, 1, 3], targets.Select(t => t.Board).ToArray());
+        Assert.Equal(["A1", "B1", "C1"], targets.Select(t => t.Label).ToArray());
+        Assert.Equal([0, 8, 16], targets.Select(t => t.KeyIndex).ToArray());
     }
 
     /// <summary>界面下拉框走的是 SelectedIndex↔SelectedOptionIndex 双向绑定，这里直接驱动它。</summary>

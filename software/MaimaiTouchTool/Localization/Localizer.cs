@@ -174,10 +174,10 @@ public sealed class Localizer : INotifyPropertyChanged
 
         // Mapping auto-learn
         ["Mapping.Title"] = "Auto-learn mapping",
-        ["Mapping.Hint"] = "The tool walks the boards in order (board 1 → 4, channel 0 → 11), asks you to hold each key, and finds which of the 48 channels reacts. No prior mapping is needed.",
+        ["Mapping.Hint"] = "The tool walks the keys in panel order (A1 → A8, B1 → B8, C1, C2, D1 → D8, E1 → E8), asks you to hold each one, and finds which of the 48 channels reacts. No prior mapping is needed.",
         ["Mapping.Start"] = "Start auto-learn",
         ["Mapping.BaselineStep"] = "Measuring idle baseline… {0}%",
-        ["Mapping.KeyStep"] = "Hold {0} on {1} · CH{2:00} ({3}/{4}), then release.",
+        ["Mapping.KeyStep"] = "Hold {0} ({1}/{2}), then release.",
         ["Mapping.LiveDepth"] = "Live drop {0:0}",
         ["Mapping.SkipKey"] = "Skip this key",
         ["Mapping.FinishKey"] = "Finish this key",
@@ -567,10 +567,10 @@ public sealed class Localizer : INotifyPropertyChanged
         ["Config.Mapping.List"] = "通道列表",
 
         ["Mapping.Title"] = "自动学习映射",
-        ["Mapping.Hint"] = "工具会按板序（板 1 → 板 4，通道 0 → 11）逐个提示你按住某个按键，并在 48 个通道里找出响应的那个。无需事先知道当前映射。",
+        ["Mapping.Hint"] = "工具会按面板上的按键顺序（A1 → A8、B1 → B8、C1、C2、D1 → D8、E1 → E8）逐个提示你按住某个键，并在 48 个通道里找出响应的那个。无需事先知道当前映射。",
         ["Mapping.Start"] = "开始自动学习",
         ["Mapping.BaselineStep"] = "正在测量静止基线…… {0}%",
-        ["Mapping.KeyStep"] = "请按住 {1} · 通道 {2:00} 上的 {0}（{3}/{4}），然后松开。",
+        ["Mapping.KeyStep"] = "请按住 {0}（{1}/{2}），然后松开。",
         ["Mapping.LiveDepth"] = "实时下降 {0:0}",
         ["Mapping.SkipKey"] = "跳过此键",
         ["Mapping.FinishKey"] = "结束此键",
