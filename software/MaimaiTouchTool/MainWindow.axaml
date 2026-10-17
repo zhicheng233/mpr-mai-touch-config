@@ -1,7 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:loc="clr-namespace:MaimaiTouchTool.Localization"
         x:Class="MaimaiTouchTool.MainWindow" x:CompileBindings="False"
-        Width="1180" Height="820" MinWidth="1100" MinHeight="620"
+        Width="1180" Height="820" MinWidth="1300" MinHeight="620"
         Title="maimai Touch Tool">
   <Window.Styles>
     <Style Selector="TextBlock.heading"><Setter Property="FontSize" Value="22"/><Setter Property="FontWeight" Value="SemiBold"/></Style>
@@ -145,8 +145,8 @@
                 <Grid ColumnDefinitions="Auto,*,Auto">
                   <TextBlock FontSize="11" FontWeight="SemiBold" Foreground="#39B0A6" VerticalAlignment="Center" Text="{DynamicResource Config.LegendSensitive}"/>
                   <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="4" VerticalAlignment="Center">
-                    <Border Width="34" Height="14" CornerRadius="3" Background="#1E5A63"/>
                     <Border Width="34" Height="14" CornerRadius="3" Background="#2A7E7D"/>
+                    <Border Width="34" Height="14" CornerRadius="3" Background="#1E5A63"/>
                     <Border Width="34" Height="14" CornerRadius="3" Background="#3A424B"/>
                     <Border Width="34" Height="14" CornerRadius="3" Background="#9E5A32"/>
                     <Border Width="34" Height="14" CornerRadius="3" Background="#E0703A"/>
