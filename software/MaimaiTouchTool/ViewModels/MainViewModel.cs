@@ -124,8 +124,9 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
         ConnectCommand = new AsyncCommand(ConnectAsync, () => !IsBusy && !IsConnected && !string.IsNullOrWhiteSpace(SelectedPort));
         DisconnectCommand = new AsyncCommand(DisconnectAsync, () => IsConnected && !IsBusy);
         CancelConnectCommand = new AsyncCommand(CancelConnectAsync, () => connectCancellation is not null);
-        ApplyCommand = new AsyncCommand(ApplyAsync, () => !IsBusy && IsConnected && IsDirty && !HasConflict && !Editor.HasMappingConflict);
-        SaveCommand = new AsyncCommand(SaveAsync, () => !IsBusy && IsConnected && !IsDirty && !HasConflict && !Editor.HasMappingConflict);        ReadbackCommand = new AsyncCommand(ReadbackAsync, () => !IsBusy && IsConnected);
+        ApplyCommand = new AsyncCommand(ApplyAsync, () => !IsBusy && IsConnected && IsDirty && !HasConflict && !Editor.HasMappingConflict && !IsStreaming && !IsGameMode);
+        SaveCommand = new AsyncCommand(SaveAsync, () => !IsBusy && IsConnected && !IsDirty && !HasConflict && !Editor.HasMappingConflict && !IsStreaming && !IsGameMode);
+        ReadbackCommand = new AsyncCommand(ReadbackAsync, () => !IsBusy && IsConnected && !IsStreaming && !IsGameMode);
         RestoreDefaultsCommand = new AsyncCommand(RestoreDefaults, () => !IsBusy && IsConnected);
         UseDeviceCommand = new AsyncCommand(() => { HasConflict = false; StatusMessage = Localizer.Instance["Msg.DeviceSelected"]; return Task.CompletedTask; });
         UseLocalCommand = new AsyncCommand(UseLocalAsync, () => HasConflict && IsConnected);
@@ -395,6 +396,8 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
     public Task RunDisconnectForTestAsync() => DisconnectAsync();
     public Task RunGameModeForTestAsync() => StartGameModeAsync();
     public Task RunStopGameModeForTestAsync() => StopGameModeAsync();
+    public Task RunApplyForTestAsync() => ApplyAsync();
+    public Task RunSaveForTestAsync() => SaveAsync();
 
     // MCP 也是走这两条路径（GUI 里的「连接 / 断开」按钮），所以进度、错误提示、
     // 状态灯都和手工操作完全一致，AI 做的每一步在界面上都看得见。
@@ -506,7 +509,7 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
     {
         IsBusy = true; StatusMessage = Localizer.Instance["Msg.Applying"];
         try { await McpApplyAsync(CancellationToken.None); StatusMessage = Localizer.Instance["Msg.Applied"]; }
-        catch (Exception ex) { Status = transport?.State == TransportState.Disconnected ? ConnectionStatus.Disconnected : ConnectionStatus.Error; StatusMessage = Localizer.Instance["Msg.ApplyFailed"] + UserMessage(ex); }
+        catch (Exception ex) { ReportCommandFailure(Localizer.Instance["Msg.ApplyFailed"], ex); }
         finally { IsBusy = false; }
     }
 
@@ -530,7 +533,7 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
             if (outcome.MirrorError is not null) throw outcome.MirrorError;
             StatusMessage = Localizer.Instance["Msg.Saved"];
         }
-        catch (Exception ex) { Status = transport?.State == TransportState.Disconnected ? ConnectionStatus.Disconnected : ConnectionStatus.Error; StatusMessage = deviceSaved ? Localizer.Instance["Msg.EepromSavedJsonFailed"] + UserMessage(ex) : Localizer.Instance["Msg.SaveFailed"] + UserMessage(ex); }
+        catch (Exception ex) { ReportCommandFailure(deviceSaved ? Localizer.Instance["Msg.EepromSavedJsonFailed"] : Localizer.Instance["Msg.SaveFailed"], ex); }
         finally { IsBusy = false; }
     }
 
@@ -555,11 +558,21 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
 
     internal readonly record struct SaveOutcome(bool DeviceSaved, Exception? MirrorError);
 
+    /// <summary>
+    /// 单条命令失败时的状态处理：只有传输层真的断开才置 Disconnected；端口还在就保持 Connected，
+    /// 只更新提示文字。否则界面会进入「错误」态（等同断开）却仍占着 COM 口，用户既不能重试也不能重连。
+    /// </summary>
+    private void ReportCommandFailure(string prefix, Exception ex)
+    {
+        Status = transport is null || transport.State == TransportState.Disconnected ? ConnectionStatus.Disconnected : ConnectionStatus.Connected;
+        StatusMessage = prefix + UserMessage(ex);
+    }
+
     private async Task ReadbackAsync()
     {
         IsBusy = true; StatusMessage = Localizer.Instance["Msg.ReadingConfig"];
         try { applied = await ReadConfigAsync(); Editor.Update(applied); WireEditor(); IsDirty = false; Telemetry.ApplyThresholds(applied); ResetMappingHistory(); StatusMessage = Localizer.Instance["Msg.ReadbackLoaded"]; }
-        catch (Exception ex) { Status = transport?.State == TransportState.Disconnected ? ConnectionStatus.Disconnected : ConnectionStatus.Error; StatusMessage = Localizer.Instance["Msg.ReadbackFailed"] + UserMessage(ex); }
+        catch (Exception ex) { ReportCommandFailure(Localizer.Instance["Msg.ReadbackFailed"], ex); }
         finally { IsBusy = false; }
     }
 

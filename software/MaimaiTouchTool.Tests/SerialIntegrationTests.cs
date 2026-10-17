@@ -296,6 +296,78 @@ public sealed class SerialIntegrationTests
         Assert.Contains(endpoint.Requests, request => request.Type == (byte)ProtocolConstants.FrameType.StreamStop);
     }
 
+    // 回归：固件在 CONFIG_IDLE 空闲 30 s 后会静默退回 GAME（配置帧被丢弃且不回报错），
+    // 用户「改完映射过一会儿再点保存」就会看到 1 s 超时。传输层必须自动补发 ENTER_CFG 再重试，
+    // 让调用方完全感知不到这次掉线。
+    [Fact]
+    public async Task ConfigRequestsRecoverAfterTheFirmwareSilentlyReturnsToGameMode()
+    {
+        await using var endpoint = new FakeSerialEndpoint();
+        var transport = await EnterConfigAsync(endpoint, TimeSpan.FromMilliseconds(150));
+        var workflow = new ConfigurationWorkflow(transport);
+
+        // 模拟空闲超时：板子已经回到 GAME，工具这边毫不知情。
+        endpoint.ForceMode(ProtocolConstants.DeviceMode.Game);
+
+        var changed = ConfigBlob.Defaults() with { ElectrodeOffsets = ConfigBlob.Defaults().ElectrodeOffsets.Select((value, index) => index == 0 ? (sbyte)9 : value).ToArray() };
+        await workflow.ApplyAsync(changed);
+        await workflow.SaveAsync();
+
+        Assert.Equal(ProtocolConstants.DeviceMode.ConfigIdle, endpoint.Mode);
+        Assert.Equal(changed.Encode(), endpoint.PersistedConfig.Encode());
+        Assert.Contains(endpoint.Requests, request => request.Type == (byte)ProtocolConstants.FrameType.EnterConfig);
+    }
+
+    // 回归：单条命令失败但端口还在时，界面不能进入「错误」态（等同断开、按钮全禁用却仍占着 COM 口）。
+    [Fact]
+    public async Task FailedSaveKeepsTheSessionUsableInsteadOfGoingToError()
+    {
+        var endpoint = new FakeSerialEndpoint();
+        endpoint.ForceMode(ProtocolConstants.DeviceMode.ConfigIdle);
+        var viewModel = new MainViewModel(_ => { var t = new SerialTransport(endpoint) { CommandTimeout = TimeSpan.FromMilliseconds(150) }; return (t, t); });
+        viewModel.SelectedPort = "COM_TEST";
+        await viewModel.RunConnectForTestAsync();
+        Assert.True(viewModel.IsConnected);
+
+        // 让 SAVE_CFG 既超时、重试也失败：ENTER_CFG 之后设备装死不响应。
+        endpoint.SuppressResponses = true;
+        await viewModel.RunSaveForTestAsync();
+
+        Assert.Equal(ConnectionStatus.Connected, viewModel.Status);
+        Assert.True(viewModel.DisconnectCommand.CanExecute(null));
+        Assert.True(viewModel.ReadbackCommand.CanExecute(null));
+        Assert.False(string.IsNullOrWhiteSpace(viewModel.StatusMessage));
+    }
+
+    // 回归：映射页的真实顺序是「停流（只 Cancel，不等任务结束）→ 立刻 Apply」。
+    // 如果流循环和随后的配置请求各自读同一个端口，APPLY_CFG 的 ACK 会被 STREAM_STOP 的读循环吞掉，
+    // 表现为随机 1 s 超时。传输层必须让整段流（含收尾 STREAM_STOP）独占端口。
+    [Fact]
+    public async Task ApplyRightAfterStoppingTheStreamDoesNotLoseTheAck()
+    {
+        await using var endpoint = new FakeSerialEndpoint();
+        var transport = await EnterConfigAsync(endpoint);
+        var workflow = new ConfigurationWorkflow(transport);
+        var config = ConfigBlob.Defaults();
+
+        for (var round = 0; round < 3; round++)
+        {
+            using var streaming = new CancellationTokenSource();
+            var streamTask = Task.Run(async () =>
+            {
+                try { await transport.StreamDebugEventsAsync(100, _ => { }, _ => { }, streaming.Token, _ => { }); }
+                catch (OperationCanceledException) { }
+            });
+            await Task.Delay(30);
+            streaming.Cancel(); // 故意不等 streamTask，与 EndMappingStream 一致
+            await workflow.ApplyAsync(config);
+            await workflow.SaveAsync();
+            await streamTask;
+        }
+
+        Assert.Equal(config.Encode(), endpoint.PersistedConfig.Encode());
+    }
+
     // 游戏模式：进入后固件以 9 字节游戏帧流式输出；工具解析这些帧驱动 34 键触摸反馈。
     [Fact]
     public async Task GameModeStreamsRawFramesAndDrivesTouchKeys()
@@ -317,6 +389,10 @@ public sealed class SerialIntegrationTests
         await WaitFor(() => viewModel.TouchKeys[0].IsPressed && viewModel.TouchKeys[24].IsPressed);
 
         Assert.False(viewModel.TouchKeys[1].IsPressed);
+        // 游戏模式/调试流期间不允许 Apply/Save/Readback：端口被流循环独占，另外发请求只会超时。
+        Assert.False(viewModel.SaveCommand.CanExecute(null));
+        Assert.False(viewModel.ApplyCommand.CanExecute(null));
+        Assert.False(viewModel.ReadbackCommand.CanExecute(null));
 
         await viewModel.RunStopGameModeForTestAsync();
         await gameTask;

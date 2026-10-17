@@ -137,7 +137,52 @@ public sealed class SerialTransport(IByteStream stream) : IEventRequestClient, I
         try { await stream.WriteAsync(encoded, timeout.Token); }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested) { throw new TimeoutException("Serial write timed out."); }
     }
+    // 固件在 CONFIG_IDLE 空闲 30 s 后会静默退回 GAME 模式（见 PROTOCOL.md 状态机）。
+    // GAME 模式下配置帧一律被丢弃、且故意不回报错（否则会污染游戏输出），
+    // 所以工具只会看到 1 s 超时。这些类型只在 CONFIG_IDLE 合法，
+    // 因此超时后补发 ENTER_CFG 把它拉回来再重试一次是安全的，且对调用方完全透明。
+    private static bool IsConfigOnlyRequest(byte type) => type is
+        (byte)ProtocolConstants.FrameType.GetConfig or
+        (byte)ProtocolConstants.FrameType.SetConfig or
+        (byte)ProtocolConstants.FrameType.ApplyConfig or
+        (byte)ProtocolConstants.FrameType.SaveConfig or
+        (byte)ProtocolConstants.FrameType.StreamStart;
+
     public async Task<ProtocolFrame> SendRequestAsync(byte type, byte[] payload, CancellationToken cancellationToken = default)
+        => await SendRequestCoreAsync(type, payload, cancellationToken, gateAlreadyHeld: false);
+
+    // 配置类请求超时后补发 ENTER_CFG 再重试一次（固件空闲 30 s 会静默退回 GAME 模式，配置帧被丢弃且不回报错）。
+    private async Task<ProtocolFrame> SendRequestCoreAsync(byte type, byte[] payload, CancellationToken cancellationToken, bool gateAlreadyHeld)
+    {
+        Func<byte, byte[], CancellationToken, Task<ProtocolFrame>> send =
+            gateAlreadyHeld ? SendRequestOnceCoreAsync : SendRequestOnceAsync;
+        try { return await send(type, payload, cancellationToken); }
+        catch (TimeoutException timeout) when (IsConfigOnlyRequest(type) && !cancellationToken.IsCancellationRequested)
+        {
+            SerialByteStream.Trace($"<- re-entering config mode after timeout on type=0x{type:X2}");
+            try { await send((byte)ProtocolConstants.FrameType.EnterConfig, [], cancellationToken); }
+            catch (OperationCanceledException) { throw; }
+            catch { throw timeout; } // 连 ENTER_CFG 都没人应答：设备确实不在了，报原始超时
+            return await send(type, payload, cancellationToken);
+        }
+    }
+    // 同一时刻只允许一个操作在读串口。否则「停流」的 STREAM_STOP 和紧随其后的 APPLY_CFG
+    // 会各自开一个读循环，谁都可能把对方的 ACK 读走（表现为毫无征兆的 1 s 超时）。
+    // 注意：SemaphoreSlim 不可重入，持有期间必须走 *Core 版本，不能再走带闸门的入口。
+    private static readonly TimeSpan PortBusyTimeout = TimeSpan.FromSeconds(5);
+    private readonly SemaphoreSlim portGate = new(1, 1);
+    private async Task EnterPortAsync(CancellationToken cancellationToken)
+    {
+        if (!await portGate.WaitAsync(PortBusyTimeout, cancellationToken).ConfigureAwait(false))
+            throw new TimeoutException($"The serial port is busy with another operation (waited {PortBusyTimeout.TotalSeconds:0.#}s).");
+    }
+    private async Task<ProtocolFrame> SendRequestOnceAsync(byte type, byte[] payload, CancellationToken cancellationToken)
+    {
+        await EnterPortAsync(cancellationToken);
+        try { return await SendRequestOnceCoreAsync(type, payload, cancellationToken); }
+        finally { portGate.Release(); }
+    }
+    private async Task<ProtocolFrame> SendRequestOnceCoreAsync(byte type, byte[] payload, CancellationToken cancellationToken)
     {
         if (State is TransportState.Disconnected or TransportState.Connecting) throw new InvalidOperationException("Transport is not ready.");
         var sequence = NextSequence();
@@ -168,6 +213,13 @@ public sealed class SerialTransport(IByteStream stream) : IEventRequestClient, I
         catch (Exception ex) { SerialByteStream.Trace($"<- FAILED type=0x{type:X2} {ex.GetType().Name}: {ex.Message}"); State = TransportState.Disconnected; throw; }
     }
     public async Task<(ProtocolFrame Ack, ProtocolFrame Event)> SendRequestAndWaitForEventAsync(byte type, byte[] payload, byte eventType, TimeSpan eventTimeout, CancellationToken cancellationToken = default)
+    {
+        // 校准要等 CAL_DONE（可达数十秒），整段时间独占端口，避免与别的请求互抢应答。
+        await EnterPortAsync(cancellationToken);
+        try { return await SendRequestAndWaitForEventCoreAsync(type, payload, eventType, eventTimeout, cancellationToken); }
+        finally { portGate.Release(); }
+    }
+    private async Task<(ProtocolFrame Ack, ProtocolFrame Event)> SendRequestAndWaitForEventCoreAsync(byte type, byte[] payload, byte eventType, TimeSpan eventTimeout, CancellationToken cancellationToken)
     {
         if (State is TransportState.Disconnected or TransportState.Connecting) throw new InvalidOperationException("Transport is not ready.");
         var requestSequence = NextSequence(); SetOperationState(TransportState.Calibrating); await SendAsync(new ProtocolFrame(type, requestSequence, payload), cancellationToken);
@@ -205,36 +257,43 @@ public sealed class SerialTransport(IByteStream stream) : IEventRequestClient, I
     public async Task<StreamStartInfo> StreamDebugEventsAsync(ushort requestedRateHz, Action<DebugFrameEvent> onFrame, Action<Exception> onError, CancellationToken cancellationToken = default, Action<StreamStartInfo>? onStarted = null)
     {
         var startPayload = new byte[2]; BinaryPrimitives.WriteUInt16LittleEndian(startPayload, requestedRateHz);
-        var ackFrame = await SendRequestAsync((byte)ProtocolConstants.FrameType.StreamStart, startPayload, cancellationToken);
-        if (ackFrame.Type == (byte)ProtocolConstants.FrameType.Error) { var e = ErrorPayload.Decode(ackFrame.Payload); throw new InvalidOperationException($"STREAM_START was rejected: {Enum.GetName((ProtocolConstants.ErrorStatus)e.Status) ?? $"status {e.Status}"}."); }
-        var ack = AckPayload.Decode(ackFrame.Payload); if (ack.Status != 0) throw new InvalidOperationException($"STREAM_START was rejected: {Enum.GetName((ProtocolConstants.ErrorStatus)ack.Status) ?? $"status {ack.Status}"}.");
-        var rate = StreamStartResult.Decode(ack.Result);
-        if (rate.AcceptedRateHz == 0 || rate.ActualRateHz == 0) throw new FormatException("STREAM_START returned no measurable rate.");
-        var startInfo = new StreamStartInfo(rate.AcceptedRateHz, rate.ActualRateHz);
-        onStarted?.Invoke(startInfo);
-        SetOperationState(TransportState.Streaming); var parser = new FrameParser(); var buffer = new byte[512];
-        // 注意：这里不注册 abortOnUserCancel —— “停止流”是优雅停止：取消读循环后仍需在同一个（未关闭的）端口上发 STREAM_STOP。
-        // ReadAsync 会在两次 ReadTimeout（≤250ms）之间检查 token，因此取消延迟很小。
+        // 整段流（含收尾的 STREAM_STOP）独占端口：否则调用方「先停流、再立刻 Apply」时，
+        // 两边各开一个读循环，APPLY_CFG 的 ACK 会被 STREAM_STOP 的读循环吞掉。
+        await EnterPortAsync(cancellationToken);
         try
         {
-            while (true)
+            var ackFrame = await SendRequestCoreAsync((byte)ProtocolConstants.FrameType.StreamStart, startPayload, cancellationToken, gateAlreadyHeld: true);
+            if (ackFrame.Type == (byte)ProtocolConstants.FrameType.Error) { var e = ErrorPayload.Decode(ackFrame.Payload); throw new InvalidOperationException($"STREAM_START was rejected: {Enum.GetName((ProtocolConstants.ErrorStatus)e.Status) ?? $"status {e.Status}"}."); }
+            var ack = AckPayload.Decode(ackFrame.Payload); if (ack.Status != 0) throw new InvalidOperationException($"STREAM_START was rejected: {Enum.GetName((ProtocolConstants.ErrorStatus)ack.Status) ?? $"status {ack.Status}"}.");
+            var rate = StreamStartResult.Decode(ack.Result);
+            if (rate.AcceptedRateHz == 0 || rate.ActualRateHz == 0) throw new FormatException("STREAM_START returned no measurable rate.");
+            var startInfo = new StreamStartInfo(rate.AcceptedRateHz, rate.ActualRateHz);
+            onStarted?.Invoke(startInfo);
+            SetOperationState(TransportState.Streaming); var parser = new FrameParser(); var buffer = new byte[512];
+            // 注意：这里不注册 abortOnUserCancel —— “停止流”是优雅停止：取消读循环后仍需在同一个（未关闭的）端口上发 STREAM_STOP。
+            // ReadAsync 会在两次 ReadTimeout（≤250ms）之间检查 token，因此取消延迟很小。
+            try
             {
-                var count = await stream.ReadAsync(buffer, cancellationToken); if (cancellationToken.IsCancellationRequested) throw new OperationCanceledException(cancellationToken); if (count == 0) throw new IOException("The serial device disconnected.");
-                foreach (var response in parser.Push(buffer.AsMemory(0, count), DateTimeOffset.UtcNow))
+                while (true)
                 {
-                    if (response.Type != (byte)ProtocolConstants.FrameType.DebugFrame) continue;
-                    try { onFrame(new DebugFrameEvent(response.Sequence, DebugFrame.Decode(response.Payload), DateTimeOffset.UtcNow)); }
-                    catch (FormatException error) { onError(error); }
+                    var count = await stream.ReadAsync(buffer, cancellationToken); if (cancellationToken.IsCancellationRequested) throw new OperationCanceledException(cancellationToken); if (count == 0) throw new IOException("The serial device disconnected.");
+                    foreach (var response in parser.Push(buffer.AsMemory(0, count), DateTimeOffset.UtcNow))
+                    {
+                        if (response.Type != (byte)ProtocolConstants.FrameType.DebugFrame) continue;
+                        try { onFrame(new DebugFrameEvent(response.Sequence, DebugFrame.Decode(response.Payload), DateTimeOffset.UtcNow)); }
+                        catch (FormatException error) { onError(error); }
+                    }
                 }
             }
+            catch (OperationCanceledException)
+            {
+                SetOperationState(TransportState.Config);
+                try { await SendRequestCoreAsync((byte)ProtocolConstants.FrameType.StreamStop, [], CancellationToken.None, gateAlreadyHeld: true); } catch { }
+            }
+            catch { State = TransportState.Disconnected; throw; }
+            return startInfo;
         }
-        catch (OperationCanceledException)
-        {
-            SetOperationState(TransportState.Config);
-            try { await SendRequestAsync((byte)ProtocolConstants.FrameType.StreamStop, [], CancellationToken.None); } catch { }
-        }
-        catch { State = TransportState.Disconnected; throw; }
-        return startInfo;
+        finally { portGate.Release(); }
     }
     public void SetOperationState(TransportState state) { if (state is TransportState.Disconnected or TransportState.Connecting) throw new ArgumentOutOfRangeException(nameof(state)); State = state; }
     // GAME 模式：固件在退出配置模式后直接输出 9 字节传统游戏帧（'('+7+')'），约几百 Hz。
@@ -242,21 +301,26 @@ public sealed class SerialTransport(IByteStream stream) : IEventRequestClient, I
     public async Task StreamGameFramesAsync(Action<ulong> onTouchBits, CancellationToken cancellationToken = default)
     {
         if (State is TransportState.Disconnected or TransportState.Connecting) throw new InvalidOperationException("Transport is not ready.");
-        SetOperationState(TransportState.Streaming);
-        var parser = new GameFrameParser();
-        var buffer = new byte[512];
+        await EnterPortAsync(cancellationToken);
         try
         {
-            while (true)
+            SetOperationState(TransportState.Streaming);
+            var parser = new GameFrameParser();
+            var buffer = new byte[512];
+            try
             {
-                var count = await stream.ReadAsync(buffer, cancellationToken);
-                if (cancellationToken.IsCancellationRequested) throw new OperationCanceledException(cancellationToken);
-                if (count == 0) throw new IOException("The serial device disconnected.");
-                foreach (var bits in parser.Push(buffer, count)) onTouchBits(bits);
+                while (true)
+                {
+                    var count = await stream.ReadAsync(buffer, cancellationToken);
+                    if (cancellationToken.IsCancellationRequested) throw new OperationCanceledException(cancellationToken);
+                    if (count == 0) throw new IOException("The serial device disconnected.");
+                    foreach (var bits in parser.Push(buffer, count)) onTouchBits(bits);
+                }
             }
+            catch (OperationCanceledException) { SetOperationState(TransportState.Config); }
+            catch { State = TransportState.Disconnected; throw; }
         }
-        catch (OperationCanceledException) { SetOperationState(TransportState.Config); }
-        catch { State = TransportState.Disconnected; throw; }
+        finally { portGate.Release(); }
     }
     private ushort sequence;
     private ushort NextSequence() => ++sequence;
