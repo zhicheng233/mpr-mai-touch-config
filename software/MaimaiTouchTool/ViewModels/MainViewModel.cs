@@ -72,6 +72,7 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
     private readonly MappingHistory mappingHistory = new();
     private bool replayingHistory;
     public TelemetrySessionModel Telemetry { get; } = new();
+    public McpGuideModel McpGuide { get; } = new();
 
     public MainViewModel(Func<string, (SerialTransport Transport, IRequestClient Client)>? transportFactory = null)
     {

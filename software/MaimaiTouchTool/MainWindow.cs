@@ -46,6 +46,25 @@ public sealed partial class MainWindow : Window
         args.Handled = true;
     }
 
+    private async void OnCopyConfig(object? sender, RoutedEventArgs args) => await CopyAsync(viewModel.McpGuide.ConfigSnippet);
+
+    private async void OnCopyTest(object? sender, RoutedEventArgs args) => await CopyAsync(viewModel.McpGuide.TestCommand);
+
+    private async Task CopyAsync(string text)
+    {
+        var clipboard = GetTopLevel(this)?.Clipboard;
+        if (clipboard is null) return;
+        try
+        {
+            await clipboard.SetTextAsync(text);
+            viewModel.McpGuide.Copied = true;
+        }
+        catch (Exception ex)
+        {
+            Trace.WriteLine($"Clipboard copy failed: {ex.Message}");
+        }
+    }
+
     private void BuildTouchBoard(IEnumerable<TouchKeyModel> keys)
     {
         foreach (var key in keys)

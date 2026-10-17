@@ -45,6 +45,12 @@ public static class McpServer
             Opt("durationMs", ("integer", "采样时长（毫秒），默认 1000"))),
     ];
 
+    /// <summary>供 UI 的 MCP 引导页展示工具清单，避免文档与实际定义漂移。</summary>
+    public static IReadOnlyList<(string Name, string Description)> DescribeTools() =>
+        ToolDefinitions
+            .Select(t => (t["name"]!.GetValue<string>(), t["description"]!.GetValue<string>()))
+            .ToArray();
+
     public static async Task RunAsync()
     {
         using var reader = new StreamReader(Console.OpenStandardInput());

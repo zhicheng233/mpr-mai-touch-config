@@ -513,6 +513,98 @@
           </Border>
         </Grid>
       </TabItem>
+      <TabItem Header="{DynamicResource Tab.Mcp}">
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="8" Spacing="16">
+          <StackPanel Spacing="3">
+            <TextBlock Classes="heading" Text="{DynamicResource Mcp.Title}"/>
+            <TextBlock Foreground="#A9B1BA" Text="{DynamicResource Mcp.Hint}" TextWrapping="Wrap"/>
+          </StackPanel>
+
+          <Border Background="#2A2416" BorderBrush="#8A6E3A" BorderThickness="1" CornerRadius="4" Padding="10,8">
+            <TextBlock Foreground="#E8CD90" TextWrapping="Wrap" Text="{DynamicResource Mcp.ExclusiveWarning}"/>
+          </Border>
+
+          <!-- 1. 启动方式 -->
+          <Border Classes="panel">
+            <StackPanel Spacing="8">
+              <StackPanel Spacing="3">
+                <TextBlock Classes="section" Margin="0" Text="{DynamicResource Mcp.StepRun}"/>
+                <TextBlock FontSize="11" Foreground="#A9B1BA" Text="{DynamicResource Mcp.StepRunHint}" TextWrapping="Wrap"/>
+              </StackPanel>
+              <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                <TextBlock VerticalAlignment="Center" FontSize="11" Foreground="#7F8A95" Text="{DynamicResource Mcp.ExeLabel}"/>
+                <SelectableTextBlock Grid.Column="1" FontFamily="Consolas,Menlo,monospace" FontSize="11" TextTrimming="CharacterEllipsis"
+                                     Text="{Binding McpGuide.Executable}" ToolTip.Tip="{Binding McpGuide.Executable}"/>
+              </Grid>
+              <SelectableTextBlock FontFamily="Consolas,Menlo,monospace" FontSize="12" Foreground="#D8B46A" Text="MaimaiTouchTool.exe --mcp"/>
+            </StackPanel>
+          </Border>
+
+          <!-- 2. 客户端配置 -->
+          <Border Classes="panel">
+            <StackPanel Spacing="8">
+              <StackPanel Spacing="3">
+                <TextBlock Classes="section" Margin="0" Text="{DynamicResource Mcp.StepConfig}"/>
+                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                  <ComboBox MinWidth="170" ItemsSource="{Binding McpGuide.ClientLabels}" SelectedIndex="{Binding McpGuide.SelectedClientIndex}"/>
+                  <TextBlock Grid.Column="1" VerticalAlignment="Center" FontSize="11" Foreground="#7F8A95"
+                             Text="{Binding McpGuide.ConfigPathHint}" TextWrapping="Wrap"/>
+                  <Button Grid.Column="2" Classes="mini-wide" Click="OnCopyConfig" Content="{Binding McpGuide.CopyLabel}" ToolTip.Tip="{DynamicResource Mcp.StepConfig}"/>
+                </Grid>
+                <TextBlock FontSize="11" Foreground="#7F8A95" Text="{Binding McpGuide.ConfigLabel}"/>
+              </StackPanel>
+              <Border Background="#14181C" BorderBrush="#303740" BorderThickness="1" CornerRadius="4" Padding="10">
+                <SelectableTextBlock FontFamily="Consolas,Menlo,monospace" FontSize="11" Text="{Binding McpGuide.ConfigSnippet}" TextWrapping="NoWrap"/>
+              </Border>
+            </StackPanel>
+          </Border>
+
+          <!-- 3. 自检 -->
+          <Border Classes="panel">
+            <StackPanel Spacing="8">
+              <StackPanel Spacing="3">
+                <TextBlock Classes="section" Margin="0" Text="{DynamicResource Mcp.StepTest}"/>
+                <TextBlock FontSize="11" Foreground="#A9B1BA" Text="{DynamicResource Mcp.StepTestHint}" TextWrapping="Wrap"/>
+              </StackPanel>
+              <Border Background="#14181C" BorderBrush="#303740" BorderThickness="1" CornerRadius="4" Padding="10">
+                <SelectableTextBlock FontFamily="Consolas,Menlo,monospace" FontSize="11" Text="{Binding McpGuide.TestCommand}"/>
+              </Border>
+              <Button HorizontalAlignment="Left" Classes="mini-wide" Click="OnCopyTest" Content="{DynamicResource Mcp.Copy}"/>
+            </StackPanel>
+          </Border>
+
+          <!-- 工具清单 -->
+          <Border Classes="panel">
+            <StackPanel Spacing="8">
+              <StackPanel Spacing="3">
+                <TextBlock Classes="section" Margin="0" Text="{DynamicResource Mcp.StepTools}"/>
+                <TextBlock FontSize="11" Foreground="#7F8A95" Text="{DynamicResource Mcp.StepToolsHint}" TextWrapping="Wrap"/>
+              </StackPanel>
+              <ItemsControl ItemsSource="{Binding McpGuide.Tools}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate>
+                    <Grid ColumnDefinitions="150,*" ColumnSpacing="10" Margin="0,3">
+                      <TextBlock FontFamily="Consolas,Menlo,monospace" FontSize="12" Foreground="#D8B46A" Text="{Binding Name}"/>
+                      <TextBlock Grid.Column="1" FontSize="11" Foreground="#A9B1BA" TextWrapping="Wrap" Text="{Binding Description}"/>
+                    </Grid>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </Border>
+
+          <!-- 三段式 -->
+          <Border Classes="panel">
+            <StackPanel Spacing="6">
+              <TextBlock Classes="section" Margin="0" Text="{DynamicResource Mcp.StepLifecycle}"/>
+              <TextBlock FontSize="11" Foreground="#A9B1BA" TextWrapping="Wrap" Text="{DynamicResource Mcp.StepLifecycleHint}"/>
+              <TextBlock FontSize="11" Foreground="#7F8A95" TextWrapping="Wrap" Text="{DynamicResource Mcp.FullDoc}"/>
+            </StackPanel>
+          </Border>
+        </StackPanel>
+        </ScrollViewer>
+      </TabItem>
     </TabControl>
     </Grid>
     <Border Grid.Row="2" Classes="panel" Margin="0,18,0,0" Padding="12">

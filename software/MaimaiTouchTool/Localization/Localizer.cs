@@ -32,6 +32,9 @@ public sealed class Localizer : INotifyPropertyChanged
 
     private void RebuildResources()
     {
+        // 先清空再填充：切换语言时旧语言的键若不移除，会一直留在字典里，
+        // 新表删掉某个键后界面还会显示上一门语言的残留文本。
+        Resources.Clear();
         foreach (var pair in Table) Resources[pair.Key] = pair.Value;
     }
 
@@ -218,6 +221,41 @@ public sealed class Localizer : INotifyPropertyChanged
         ["Tele.I2cHint"] = "Cumulative device count",
         ["Tele.RequestedHint"] = "Default protocol request",
         ["Tele.EventLog"] = "Event and error log",
+
+        // MCP integration guide
+        ["Tab.Mcp"] = "AI / MCP",
+        ["Mcp.Title"] = "Connect an AI model over MCP",
+        ["Mcp.Hint"] = "The tool can run as an MCP stdio server, letting an AI agent connect, read the configuration, tune thresholds, remap keys, apply, save, calibrate and read telemetry on its own. The server does not open a window and does not touch the serial port until the model connects.",
+        ["Mcp.ExclusiveWarning"] = "One USB CDC port cannot be shared: close this app before the AI client connects, and close the AI client before connecting here.",
+        ["Mcp.StepRun"] = "1 · How the server starts",
+        ["Mcp.StepRunHint"] = "The client launches this executable with --mcp and talks JSON-RPC over stdin/stdout. No port number, no background service.",
+        ["Mcp.ExeLabel"] = "Executable",
+        ["Mcp.StepConfig"] = "2 · Client configuration",
+        ["Mcp.PathLabel"] = "Where",
+        ["Mcp.ConfigLabelOpenCode"] = "Merged into your opencode.json",
+        ["Mcp.ConfigLabelClaude"] = "claude_desktop_config.json",
+        ["Mcp.ConfigLabelCursor"] = "MCP settings (mcpServers block)",
+        ["Mcp.PathOpenCode"] = "opencode.json (project root) or ~/.config/opencode/opencode.json",
+        ["Mcp.PathCursor"] = "Cursor MCP settings, or any client that reads an mcpServers block",
+        ["Mcp.Copy"] = "Copy",
+        ["Mcp.Copied"] = "Copied",
+        ["Mcp.StepTest"] = "3 · Self-check without a client",
+        ["Mcp.StepTestHint"] = "Feed three messages in and read them back. A correct server answers initialize and tools/list.",
+        ["Mcp.StepTools"] = "Tools exposed to the model",
+        ["Mcp.StepToolsHint"] = "Generated from the server definitions, so this list cannot drift from what the model actually sees.",
+        ["Mcp.StepLifecycle"] = "Staged → applied → saved",
+        ["Mcp.StepLifecycleHint"] = "set_board / set_electrode / set_mapping only change an in-memory copy. apply sends it to the board and verifies the readback. save commits it to EEPROM. get_config shows what is currently applied on the device.",
+        ["Mcp.FullDoc"] = "Full guide: software/MaimaiTouchTool/Mcp/README.md",
+        ["Mcp.Tool.connect"] = "Open the serial port and enter config mode. Already-configured is tolerated.",
+        ["Mcp.Tool.disconnect"] = "Send EXIT_CFG and release the serial port.",
+        ["Mcp.Tool.get_config"] = "Read the currently applied configuration. Errors when not connected.",
+        ["Mcp.Tool.set_board"] = "Stage one board's response parameters (board 1-4; other fields keep their current value).",
+        ["Mcp.Tool.set_electrode"] = "Stage a game key's electrode offset (negative = more sensitive).",
+        ["Mcp.Tool.set_mapping"] = "Stage a game key's board/channel mapping (board 1-4, channel 0-11; all 34 channels must stay unique).",
+        ["Mcp.Tool.apply"] = "SET_CFG + APPLY_CFG + readback verification, making the staged configuration live.",
+        ["Mcp.Tool.save"] = "SAVE_CFG, writing the applied configuration to EEPROM.",
+        ["Mcp.Tool.calibrate"] = "Trigger automatic calibration and wait for CAL_DONE.",
+        ["Mcp.Tool.read_telemetry"] = "Stream the debug feed for a few hundred ms; returns per-channel filtered/baseline plus the touch bitmap.",
 
         // Footer
         ["Footer.ApplyHint"] = "Apply = SET_CFG, APPLY_CFG, then GET_CFG readback. Save = SAVE_CFG after a verified apply.",
@@ -526,6 +564,40 @@ public sealed class Localizer : INotifyPropertyChanged
         ["Tele.I2cHint"] = "设备累计计数",
         ["Tele.RequestedHint"] = "协议默认请求值",
         ["Tele.EventLog"] = "事件与错误日志",
+
+        ["Tab.Mcp"] = "AI / MCP",
+        ["Mcp.Title"] = "通过 MCP 接入 AI 模型",
+        ["Mcp.Hint"] = "本工具可以作为 MCP stdio 服务器运行，让 AI 代理自行完成连接、读配置、调阈值、改映射、应用、保存、校准、读遥测。服务器不创建窗口，模型没连上来之前也不会碰串口。",
+        ["Mcp.ExclusiveWarning"] = "一个 USB CDC 口不能共用：让 AI 客户端连接前请先关闭本程序；回到这里连接前请先关闭 AI 客户端。",
+        ["Mcp.StepRun"] = "1 · 服务器怎么启动",
+        ["Mcp.StepRunHint"] = "客户端用 --mcp 参数启动这个可执行文件，通过 stdin/stdout 收发 JSON-RPC。没有端口号，也没有后台服务。",
+        ["Mcp.ExeLabel"] = "可执行文件",
+        ["Mcp.StepConfig"] = "2 · 客户端配置",
+        ["Mcp.PathLabel"] = "写在哪",
+        ["Mcp.ConfigLabelOpenCode"] = "合并进你的 opencode.json",
+        ["Mcp.ConfigLabelClaude"] = "claude_desktop_config.json",
+        ["Mcp.ConfigLabelCursor"] = "MCP 设置（mcpServers 段）",
+        ["Mcp.PathOpenCode"] = "项目根目录的 opencode.json，或 ~/.config/opencode/opencode.json",
+        ["Mcp.PathCursor"] = "Cursor 的 MCP 设置，或其他读取 mcpServers 段的客户端",
+        ["Mcp.Copy"] = "复制",
+        ["Mcp.Copied"] = "已复制",
+        ["Mcp.StepTest"] = "3 · 不装客户端也能自检",
+        ["Mcp.StepTestHint"] = "喂三条消息进去读回结果。服务器正常的话会回答 initialize 和 tools/list。",
+        ["Mcp.StepTools"] = "暴露给模型的工具",
+        ["Mcp.StepToolsHint"] = "这份清单由服务器定义生成，不会和模型实际看到的漂移。",
+        ["Mcp.StepLifecycle"] = "暂存 → 应用 → 保存",
+        ["Mcp.StepLifecycleHint"] = "set_board / set_electrode / set_mapping 只改内存里的副本。apply 下发到板子并读回校验。save 写进 EEPROM。get_config 显示的是设备上当前生效的配置。",
+        ["Mcp.FullDoc"] = "完整教程：software/MaimaiTouchTool/Mcp/README.md",
+        ["Mcp.Tool.connect"] = "打开串口并进入配置模式；已处于配置模式也能容忍。",
+        ["Mcp.Tool.disconnect"] = "发送 EXIT_CFG 并释放串口。",
+        ["Mcp.Tool.get_config"] = "读取当前已应用的配置；未连接时报错。",
+        ["Mcp.Tool.set_board"] = "暂存某块板的响应参数（板 1-4），未传的字段保持原值。",
+        ["Mcp.Tool.set_electrode"] = "暂存某个游戏键的电极偏移（负值更灵敏）。",
+        ["Mcp.Tool.set_mapping"] = "暂存某个键的板/通道映射（板 1-4、通道 0-11），34 个通道必须始终互不重复。",
+        ["Mcp.Tool.apply"] = "SET_CFG + APPLY_CFG + 读回校验，使暂存配置生效。",
+        ["Mcp.Tool.save"] = "SAVE_CFG，把已应用配置写入 EEPROM。",
+        ["Mcp.Tool.calibrate"] = "触发自动校准并等待 CAL_DONE。",
+        ["Mcp.Tool.read_telemetry"] = "流式读取调试数据若干百毫秒，返回各通道 filtered/baseline 与触摸位图。",
 
         ["Footer.ApplyHint"] = "应用 = SET_CFG、APPLY_CFG，再 GET_CFG 读回。保存 = 校验通过应用后 SAVE_CFG。",
         ["Footer.RestoreDefaults"] = "恢复默认",
