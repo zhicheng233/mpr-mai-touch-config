@@ -206,6 +206,12 @@
           </StackPanel>
         </Border>
 
+      </StackPanel>
+      </ScrollViewer>
+      </TabItem>
+      <TabItem Header="{DynamicResource Tab.Mapping}">
+      <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+      <StackPanel Spacing="16">
         <Border Classes="panel">
           <StackPanel Spacing="10">
             <StackPanel Spacing="3">

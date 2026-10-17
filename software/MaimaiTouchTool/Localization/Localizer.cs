@@ -78,6 +78,7 @@ public sealed class Localizer : INotifyPropertyChanged
 
         // Tabs
         ["Tab.Config"] = "Configuration",
+        ["Tab.Mapping"] = "Key mapping",
         ["Tab.Calibration"] = "Calibration",
         ["Tab.LiveTest"] = "Live test",
         ["Tab.Telemetry"] = "Telemetry",
@@ -140,7 +141,7 @@ public sealed class Localizer : INotifyPropertyChanged
         ["Config.Sens.Dull"] = "Dull",
 
         // Key mapping
-        ["Config.Mapping"] = "Key mapping (by board)",
+        ["Config.Mapping"] = "Boards & channels",
         ["Config.MappingHint"] = "Use this when the harness was soldered in a different order. Each board picks its own I2C address (0x5A–0x5D, set by the ADD pin); each channel may hold at most one key. Channels left unassigned produce no game input.",
         ["Config.Mapping.Key"] = "Key",
         ["Config.Mapping.Board"] = "Board",
@@ -387,6 +388,7 @@ public sealed class Localizer : INotifyPropertyChanged
         ["Toast.InvalidNumber"] = "请输入有效数字",
 
         ["Tab.Config"] = "配置",
+        ["Tab.Mapping"] = "按键映射",
         ["Tab.Calibration"] = "校准",
         ["Tab.LiveTest"] = "实时测试",
         ["Tab.Telemetry"] = "调试遥测",
@@ -447,7 +449,7 @@ public sealed class Localizer : INotifyPropertyChanged
         ["Config.Sens.SlightDull"] = "略迟钝",
         ["Config.Sens.Dull"] = "迟钝",
 
-        ["Config.Mapping"] = "按键映射（按板分组）",
+        ["Config.Mapping"] = "板卡与通道",
         ["Config.MappingHint"] = "焊接顺序与参考固件不同时用它纠正。每块板单独选择它的 I2C 地址（0x5A–0x5D，由 ADD 接线决定）；每个通道最多绑定一个按键，未分配的通道不产生游戏输入。",
         ["Config.Mapping.Key"] = "按键",
         ["Config.Mapping.Board"] = "板",
