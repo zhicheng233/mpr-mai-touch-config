@@ -525,6 +525,23 @@
             <TextBlock Foreground="#E8CD90" TextWrapping="Wrap" Text="{DynamicResource Mcp.ExclusiveWarning}"/>
           </Border>
 
+          <!-- 0. 内嵌端点：复用本窗口这条串口，不必关程序 -->
+          <Border Classes="panel">
+            <StackPanel Spacing="8">
+              <StackPanel Spacing="3">
+                <TextBlock Classes="section" Margin="0" Text="{DynamicResource Mcp.StepEmbedded}"/>
+                <TextBlock FontSize="11" Foreground="#A9B1BA" Text="{DynamicResource Mcp.StepEmbeddedHint}" TextWrapping="Wrap"/>
+              </StackPanel>
+              <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                <Button MinWidth="170" Command="{Binding ToggleMcpServeCommand}" Content="{Binding McpToggleLabel}"/>
+                <TextBlock Grid.Column="2" VerticalAlignment="Center" FontSize="11" Foreground="#A9B1BA"
+                           Text="{Binding McpServeLabel}"/>
+              </Grid>
+              <TextBlock FontSize="11" Foreground="#D65A3A" TextWrapping="Wrap" Text="{Binding McpEndpointError}"
+                         IsVisible="{Binding HasMcpEndpointError}"/>
+            </StackPanel>
+          </Border>
+
           <!-- 1. 启动方式 -->
           <Border Classes="panel">
             <StackPanel Spacing="8">
@@ -547,12 +564,16 @@
               <StackPanel Spacing="3">
                 <TextBlock Classes="section" Margin="0" Text="{DynamicResource Mcp.StepConfig}"/>
                 <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
-                  <ComboBox MinWidth="170" ItemsSource="{Binding McpGuide.ClientLabels}" SelectedIndex="{Binding McpGuide.SelectedClientIndex}"/>
+                  <ComboBox MinWidth="220" ItemsSource="{Binding McpGuide.ClientLabels}" SelectedIndex="{Binding McpGuide.SelectedClientIndex}"/>
                   <TextBlock Grid.Column="1" VerticalAlignment="Center" FontSize="11" Foreground="#7F8A95"
                              Text="{Binding McpGuide.ConfigPathHint}" TextWrapping="Wrap"/>
                   <Button Grid.Column="2" Classes="mini-wide" Click="OnCopyConfig" Content="{Binding McpGuide.CopyLabel}" ToolTip.Tip="{DynamicResource Mcp.StepConfig}"/>
                 </Grid>
                 <TextBlock FontSize="11" Foreground="#7F8A95" Text="{Binding McpGuide.ConfigLabel}"/>
+                <TextBlock FontSize="11" Foreground="#7FC8A0" TextWrapping="Wrap" Text="{Binding McpGuide.ModeLabel}"/>
+                <TextBlock FontSize="11" Foreground="#7F8A95" TextWrapping="Wrap" Text="{Binding McpGuide.ModeHint}"/>
+                <TextBlock FontSize="11" Foreground="#D65A3A" TextWrapping="Wrap" Text="{DynamicResource Mcp.StartServerFirst}"
+                           IsVisible="{Binding McpGuide.ShowStartServerWarning}"/>
               </StackPanel>
               <Border Background="#14181C" BorderBrush="#303740" BorderThickness="1" CornerRadius="4" Padding="10">
                 <SelectableTextBlock FontFamily="Consolas,Menlo,monospace" FontSize="11" Text="{Binding McpGuide.ConfigSnippet}" TextWrapping="NoWrap"/>

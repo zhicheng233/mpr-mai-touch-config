@@ -1,8 +1,10 @@
 using System.Collections.ObjectModel;
 using System.IO.Ports;
+using System.Text.Json;
 using Avalonia.Threading;
 using System.Windows.Input;
 using MaimaiTouchTool.Localization;
+using MaimaiTouchTool.Mcp;
 using MaimaiTouchTool.Persistence;
 using MaimaiTouchTool.Protocol;
 using MaimaiTouchTool.Transport;
@@ -74,6 +76,39 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
     public TelemetrySessionModel Telemetry { get; } = new();
     public McpGuideModel McpGuide { get; } = new();
 
+    // GUI 内嵌的 MCP 端点：开着的时候模型直接复用界面这条串口，不必关程序。
+    private readonly McpHttpHost mcpHost = new();
+    private Task<McpServer>? mcpServerFactory;
+    private bool mcpServing;
+    private string mcpEndpointError = string.Empty;
+
+    /// <summary>内嵌 MCP 服务器是否在监听。由界面的开关控制，默认关。</summary>
+    public bool IsMcpServing
+    {
+        get => mcpServing;
+        private set { if (mcpServing == value) return; mcpServing = value; OnPropertyChanged(); OnPropertyChanged(nameof(McpServeLabel)); OnPropertyChanged(nameof(McpToggleLabel)); RefreshCommands(); }
+    }
+
+    public string McpServeLabel => IsMcpServing
+        ? string.Format(Localizer.Instance["Mcp.ServingAt"], McpGuide.Endpoint)
+        : Localizer.Instance["Mcp.NotServing"];
+
+    /// <summary>按钮上的字：点它会启动还是停止。</summary>
+    public string McpToggleLabel => IsMcpServing
+        ? Localizer.Instance["Mcp.StopServe"]
+        : Localizer.Instance["Mcp.Serve"];
+
+    /// <summary>启动失败的原因（端口全被占 / 已在使用等），成功时为空。</summary>
+    public string McpEndpointError
+    {
+        get => mcpEndpointError;
+        private set { mcpEndpointError = value; OnPropertyChanged(); OnPropertyChanged(nameof(HasMcpEndpointError)); }
+    }
+
+    public bool HasMcpEndpointError => !string.IsNullOrEmpty(mcpEndpointError);
+
+    public ICommand ToggleMcpServeCommand { get; }
+
     public MainViewModel(Func<string, (SerialTransport Transport, IRequestClient Client)>? transportFactory = null)
     {
         this.transportFactory = transportFactory ?? (port => { var serial = new SerialTransport(new SerialByteStream(port)); return (serial, serial); });
@@ -99,6 +134,7 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
         RedoMappingCommand = new RelayCommand(RedoMapping, () => mappingHistory.CanRedo);
         FillBoardsCommand = new RelayCommand(FillBoards);
         RollbackMappingCommand = new RelayCommand(RollbackMappingSnapshot);
+        ToggleMcpServeCommand = new AsyncCommand(ToggleMcpServeAsync);
         StepUpCommand = new RelayCommand(() => Editor.CycleStep(1));
         StepDownCommand = new RelayCommand(() => Editor.CycleStep(-1));
         StartGuidedCommand = new AsyncCommand(StartGuidedAsync, () => IsConnected && !IsBusy && guidedCancellation is null && !IsStreaming && !IsGameMode && !IsMappingRunning);
@@ -131,6 +167,8 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
         OnPropertyChanged(nameof(CalibrationHeadline));
         OnPropertyChanged(nameof(GuidedLiveDepthLabel));
         OnPropertyChanged(nameof(MappingLiveDepthLabel));
+        OnPropertyChanged(nameof(McpServeLabel));
+        OnPropertyChanged(nameof(McpToggleLabel));
     }
 
     public ObservableCollection<string> Ports { get; } = [];
@@ -261,6 +299,76 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
         if (Ports.Count == 0 && Status == ConnectionStatus.Disconnected) StatusMessage = Localizer.Instance["Msg.NoPorts"];
     }
 
+    // ---- 供 GUI 内嵌 MCP 服务器使用的入口 ----
+    // GUI 持有唯一一条串口；MCP 通过这几个成员把工具调用接到同一份实时状态上，
+    // 而不是另开一个进程去抢 COM 口。
+
+    /// <summary>设备上当前生效的配置。</summary>
+    internal ConfigBlob AppliedConfig => applied;
+    /// <summary>编辑器里的暂存配置（未 apply 的改动）。</summary>
+    internal ConfigBlob StagedConfig => Editor.ToConfig();
+    internal string ConnectedPort => IsConnected ? SelectedPort : string.Empty;
+    internal IEventRequestClient? EventClient => client as IEventRequestClient;
+
+    /// <summary>从 MCP 指定端口时用：设置下拉框再走 GUI 的完整连接流程。</summary>
+    internal void SelectPort(string port) => SelectedPort = port;
+
+    /// <summary>MCP 改板参数：直接改编辑器，界面和「未应用」标记同步变化。</summary>
+    internal void McpStageBoard(int boardIndex, BoardEdit edit)
+    {
+        var board = Editor.Boards[boardIndex];
+        if (edit.BaseThreshold is { } baseThreshold) board.BaseThreshold = baseThreshold;
+        if (edit.SensOffset is { } sensOffset) board.SensOffset = sensOffset;
+        if (edit.TouchDebounce is { } touchDebounce) board.TouchDebounce = touchDebounce;
+        if (edit.ReleaseDebounce is { } releaseDebounce) board.ReleaseDebounce = releaseDebounce;
+        if (edit.Sfi is { } sfi) board.Sfi = sfi;
+        if (edit.Esi is { } esi) board.Esi = esi;
+        MarkDirty();
+    }
+
+    /// <summary>MCP 改单键偏移：走编辑器属性，单键面板上的着色和提示会一起刷新。</summary>
+    internal void McpStageElectrode(int keyIndex, int offset)
+    {
+        Editor.Electrodes[keyIndex].Offset = offset;
+        MarkDirty();
+    }
+
+    /// <summary>MCP 改映射：与 stdio 模式共用同一套对调语义，34 键始终保持一一对应。</summary>
+    internal void McpStageMapping(int keyIndex, int boardSlot, int channel, bool swap)
+    {
+        var mapping = McpMapping.Change(Editor.CurrentMapping(), keyIndex, boardSlot, channel, swap);
+        // GUI 这边还要把「组序 → 板槽位」的排布带上：按键序写入映射，槽位保持现状。
+        Editor.LoadMapping(mapping, Editor.CurrentSlots());
+    }
+
+    /// <summary>MCP 读遥测：复用 GUI 的那条串口。界面正在流式输出时拒绝，避免两路读循环互相抢帧。</summary>
+    internal async Task<string> McpReadTelemetryAsync(int durationMs, CancellationToken cancellationToken)
+    {
+        if (transport is null) throw new InvalidOperationException("not connected; call connect first");
+        if (IsStreaming || IsGameMode) throw new InvalidOperationException(
+            "the GUI is already streaming; stop the debug stream / game mode in the app first");
+        var last = default(DebugFrame?);
+        var count = 0;
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(durationMs);
+        try
+        {
+            await transport.StreamDebugEventsAsync(100, sample => { last = sample.Frame; count++; }, _ => { }, cts.Token, _ => { });
+        }
+        catch (OperationCanceledException) { }
+        if (last is not { } frame) return "no telemetry frames received";
+        return JsonSerializer.Serialize(new
+        {
+            frames = count,
+            durationMs,
+            touchBits = frame.TouchBits,
+            filtered = frame.Filtered,
+            baseline = frame.Baseline,
+            chipStatus = frame.ChipStatus,
+            i2cErrors = frame.I2cErrors,
+        });
+    }
+
     public void MarkDirty()
     {
         // 映射重复时 Encode() 会抛异常（34 键必须映射到互不相同的通道）；
@@ -277,6 +385,11 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
     public Task RunDisconnectForTestAsync() => DisconnectAsync();
     public Task RunGameModeForTestAsync() => StartGameModeAsync();
     public Task RunStopGameModeForTestAsync() => StopGameModeAsync();
+
+    // MCP 也是走这两条路径（GUI 里的「连接 / 断开」按钮），所以进度、错误提示、
+    // 状态灯都和手工操作完全一致，AI 做的每一步在界面上都看得见。
+    internal Task McpConnectAsync() => ConnectAsync();
+    internal Task McpDisconnectAsync() => DisconnectAsync();
 
     private async Task ConnectAsync()
     {
@@ -377,9 +490,18 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
     private async Task ApplyAsync()
     {
         IsBusy = true; StatusMessage = Localizer.Instance["Msg.Applying"];
-        try { applied = await workflow!.ApplyAsync(Editor.ToConfig()); IsDirty = false; OnPropertyChanged(nameof(DirtyLabel)); Telemetry.ApplyThresholds(applied); SaveMappingSnapshot("apply"); StatusMessage = Localizer.Instance["Msg.Applied"]; }
+        try { await McpApplyAsync(CancellationToken.None); StatusMessage = Localizer.Instance["Msg.Applied"]; }
         catch (Exception ex) { Status = transport?.State == TransportState.Disconnected ? ConnectionStatus.Disconnected : ConnectionStatus.Error; StatusMessage = Localizer.Instance["Msg.ApplyFailed"] + UserMessage(ex); }
         finally { IsBusy = false; }
+    }
+
+    /// <summary>GUI 与 MCP 共用的应用路径；失败时抛出，由调用方决定怎么呈现。</summary>
+    internal async Task<ConfigBlob> McpApplyAsync(CancellationToken cancellationToken)
+    {
+        if (workflow is null) throw new InvalidOperationException("not connected");
+        applied = await workflow.ApplyAsync(Editor.ToConfig(), cancellationToken);
+        IsDirty = false; OnPropertyChanged(nameof(DirtyLabel)); Telemetry.ApplyThresholds(applied); SaveMappingSnapshot("apply");
+        return applied;
     }
 
     private async Task SaveAsync()
@@ -388,15 +510,35 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
         var deviceSaved = false;
         try
         {
-            await workflow!.SaveAsync();
-            deviceSaved = true;
-            var document = new ConfigDocument(new DeviceIdentity(SelectedPort, null), applied, new ConfigStatus(false, false));
-            await ConfigJsonStore.SaveAtomicAsync(ConfigPath(document.Device), document);
-            persisted = applied; HasConflict = false; OnPropertyChanged(nameof(ConflictLabel)); SaveMappingSnapshot("save"); StatusMessage = Localizer.Instance["Msg.Saved"];
+            var outcome = await McpSaveAsync(CancellationToken.None);
+            deviceSaved = outcome.DeviceSaved;
+            if (outcome.MirrorError is not null) throw outcome.MirrorError;
+            StatusMessage = Localizer.Instance["Msg.Saved"];
         }
         catch (Exception ex) { Status = transport?.State == TransportState.Disconnected ? ConnectionStatus.Disconnected : ConnectionStatus.Error; StatusMessage = deviceSaved ? Localizer.Instance["Msg.EepromSavedJsonFailed"] + UserMessage(ex) : Localizer.Instance["Msg.SaveFailed"] + UserMessage(ex); }
         finally { IsBusy = false; }
     }
+
+    /// <summary>
+    /// GUI 与 MCP 共用的保存路径：先写 EEPROM，再写本地 JSON 镜像。
+    /// EEPROM 失败直接抛（板子确实没存）；镜像失败通过 <see cref="SaveOutcome.MirrorError"/> 返回，
+    /// 因为此时板子已经存好了，不该报成“保存失败”。
+    /// </summary>
+    internal async Task<SaveOutcome> McpSaveAsync(CancellationToken cancellationToken)
+    {
+        if (workflow is null) throw new InvalidOperationException("not connected; call connect first");
+        await workflow.SaveAsync(cancellationToken);
+        try
+        {
+            var document = new ConfigDocument(new DeviceIdentity(SelectedPort, null), applied, new ConfigStatus(false, false));
+            await ConfigJsonStore.SaveAtomicAsync(ConfigPath(document.Device), document);
+            persisted = applied; HasConflict = false; OnPropertyChanged(nameof(ConflictLabel)); SaveMappingSnapshot("save");
+            return new SaveOutcome(true, null);
+        }
+        catch (Exception ex) { return new SaveOutcome(true, ex); }
+    }
+
+    internal readonly record struct SaveOutcome(bool DeviceSaved, Exception? MirrorError);
 
     private async Task ReadbackAsync()
     {
@@ -504,6 +646,39 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
         StatusMessage = string.Format(Localizer.Instance["Config.Mapping.Rolled"], entry.Timestamp.LocalDateTime);
     }
 
+    // ---- GUI 内嵌 MCP 端点 ----
+
+    private async Task ToggleMcpServeAsync()
+    {
+        if (IsMcpServing) { await StopMcpServerAsync(); return; }
+        try
+        {
+            mcpServerFactory ??= Task.FromResult(new McpServer(new McpToolHost(new GuiSession(this))));
+            var server = await mcpServerFactory;
+            var port = mcpHost.Start(server);
+            McpGuide.EndpointPort = port;
+            McpEndpointError = string.Empty;
+            // IsMcpServing 的 setter 会重抛 McpServeLabel / McpToggleLabel，不用在这里再抛一次。
+            McpGuide.IsServerRunning = true;
+            IsMcpServing = true;
+            Telemetry.RecordEvent("INFO", McpServeLabel);
+        }
+        catch (Exception ex)
+        {
+            McpEndpointError = ex.Message;
+            McpGuide.IsServerRunning = false;
+            IsMcpServing = false;
+        }
+    }
+
+    /// <summary>关闭内嵌端点；退出程序时也会走这里，避免端口留在监听状态。</summary>
+    internal async Task StopMcpServerAsync()
+    {
+        await mcpHost.StopAsync();
+        McpGuide.IsServerRunning = false;
+        IsMcpServing = false;
+    }
+
     private void RefreshCommands()
     {
         OnPropertyChanged(nameof(IsCalibrating));
@@ -512,7 +687,7 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
         OnPropertyChanged(nameof(IsGameMode));
         OnPropertyChanged(nameof(IsGameModeActive));
         OnPropertyChanged(nameof(CanToggleGameMode));
-        foreach (var command in new[] { RefreshPortsCommand, ConnectCommand, DisconnectCommand, CancelConnectCommand, ApplyCommand, SaveCommand, ReadbackCommand, RestoreDefaultsCommand, UseDeviceCommand, UseLocalCommand, CalibrateCommand, CancelCalibrationCommand, StartStreamCommand, StopStreamCommand, GameModeCommand, StopGameModeCommand, StartGuidedCommand, SkipGuidedKeyCommand, FinishGuidedKeyCommand, CancelGuidedCommand, ApplyGuidedResultCommand, DiscardGuidedResultCommand, StartMappingCommand, SkipMappingKeyCommand, FinishMappingKeyCommand, CancelMappingCommand, UndoMappingCommand, RedoMappingCommand, FillBoardsCommand, RollbackMappingCommand })
+        foreach (var command in new[] { RefreshPortsCommand, ConnectCommand, DisconnectCommand, CancelConnectCommand, ApplyCommand, SaveCommand, ReadbackCommand, RestoreDefaultsCommand, UseDeviceCommand, UseLocalCommand, CalibrateCommand, CancelCalibrationCommand, StartStreamCommand, StopStreamCommand, GameModeCommand, StopGameModeCommand, StartGuidedCommand, SkipGuidedKeyCommand, FinishGuidedKeyCommand, CancelGuidedCommand, ApplyGuidedResultCommand, DiscardGuidedResultCommand, StartMappingCommand, SkipMappingKeyCommand, FinishMappingKeyCommand, CancelMappingCommand, UndoMappingCommand, RedoMappingCommand, FillBoardsCommand, RollbackMappingCommand, ToggleMcpServeCommand })
         {
             if (command is AsyncCommand asyncCommand) asyncCommand.Refresh();
             else if (command is RelayCommand relayCommand) relayCommand.Refresh();
@@ -560,30 +735,44 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
         ClearCalibrationResult();
         try
         {
-            var previous = applied;
-            CalibrationDeadlineMs = 60000;
-            var operation = events.SendRequestAndWaitForEventAsync((byte)ProtocolConstants.FrameType.Calibrate, new CalibratePayload(0, 0).Encode(), (byte)ProtocolConstants.FrameType.CalDone, TimeSpan.FromSeconds(61), calibrationCancellation.Token);
-            while (!operation.IsCompleted) { await Task.Delay(250, calibrationCancellation.Token); CalibrationDeadlineMs = (uint)Math.Max(0, CalibrationDeadlineMs - 250); CalibrationProgress = 0.1 + 0.8 * (1 - CalibrationDeadlineMs / 60000d); }
-            var result = await operation;
-            if (result.Ack.Type == (byte)ProtocolConstants.FrameType.Error) { var error = ErrorPayload.Decode(result.Ack.Payload); throw new InvalidOperationException($"CALIBRATE rejected: {Enum.GetName((ProtocolConstants.ErrorStatus)error.Status) ?? "unknown error"}."); }
-            var done = CalDonePayload.Decode(result.Event.Payload); CalibrationProgress = 1;
-            if (done.Status == CalibrationStatus.Success)
-            {
-                // 校准只改 RAM 已应用阈值；补发一次 GET_CFG 读回真实的新配置，再同步编辑器与遥测阈值。
-                ConfigBlob? current = null;
-                try { current = await ReadConfigWithRecoveryAsync(calibrationCancellation.Token); applied = current; Editor.Update(applied); WireEditor(); IsDirty = false; OnPropertyChanged(nameof(DirtyLabel)); Telemetry.ApplyThresholds(applied); }
-                catch (Exception ex) { StatusMessage = Localizer.Instance["Msg.CalibrationReadbackFailed"] + UserMessage(ex); }
-                PublishCalibrationResult(CalibrationSummary.From(previous, current, done));
-            }
-            else
-            {
-                CalibrationLabel = string.Format(Localizer.Instance["Cal.FailedReason"], done.Reason);
-                PublishCalibrationResult(CalibrationSummary.Failed(done));
-            }
+            await McpCalibrateAsync(events, calibrationCancellation.Token);
         }
         catch (OperationCanceledException) { CalibrationProgress = 0; CalibrationLabel = calibrationCancellation?.IsCancellationRequested == true ? Localizer.Instance["Cal.Cancelled"] : Localizer.Instance["Cal.TimedOut"]; }
         catch (Exception ex) { CalibrationProgress = 0; CalibrationLabel = Localizer.Instance["Cal.Failed"] + UserMessage(ex); }
         finally { calibrationCancellation.Dispose(); calibrationCancellation = null; IsBusy = false; RefreshCommands(); }
+    }
+
+    /// <summary>GUI 与 MCP 共用的校准路径。MCP 调用时不带 <c>calibrationCancellation</c>
+    /// （那是界面「取消」按钮的通道），失败直接抛给调用方。</summary>
+    internal async Task<(CalibrationStatus Status, CalibrationReason Reason)> McpCalibrateAsync(IEventRequestClient events, CancellationToken cancellationToken)
+    {
+        var previous = applied;
+        CalibrationDeadlineMs = 60000;
+        CalibrationProgress = 0.1;
+        var operation = events.SendRequestAndWaitForEventAsync((byte)ProtocolConstants.FrameType.Calibrate, new CalibratePayload(0, 0).Encode(), (byte)ProtocolConstants.FrameType.CalDone, TimeSpan.FromSeconds(61), cancellationToken);
+        while (!operation.IsCompleted)
+        {
+            await Task.Delay(250, cancellationToken);
+            CalibrationDeadlineMs = (uint)Math.Max(0, CalibrationDeadlineMs - 250);
+            CalibrationProgress = 0.1 + 0.8 * (1 - CalibrationDeadlineMs / 60000d);
+        }
+        var result = await operation;
+        if (result.Ack.Type == (byte)ProtocolConstants.FrameType.Error) { var error = ErrorPayload.Decode(result.Ack.Payload); throw new InvalidOperationException($"CALIBRATE rejected: {Enum.GetName((ProtocolConstants.ErrorStatus)error.Status) ?? "unknown error"}."); }
+        var done = CalDonePayload.Decode(result.Event.Payload); CalibrationProgress = 1;
+        if (done.Status == CalibrationStatus.Success)
+        {
+            // 校准只改 RAM 已应用阈值；补发一次 GET_CFG 读回真实的新配置，再同步编辑器与遥测阈值。
+            ConfigBlob? current = null;
+            try { current = await ReadConfigWithRecoveryAsync(cancellationToken); applied = current; Editor.Update(applied); WireEditor(); IsDirty = false; OnPropertyChanged(nameof(DirtyLabel)); Telemetry.ApplyThresholds(applied); }
+            catch (Exception ex) { StatusMessage = Localizer.Instance["Msg.CalibrationReadbackFailed"] + UserMessage(ex); }
+            PublishCalibrationResult(CalibrationSummary.From(previous, current, done));
+        }
+        else
+        {
+            CalibrationLabel = string.Format(Localizer.Instance["Cal.FailedReason"], done.Reason);
+            PublishCalibrationResult(CalibrationSummary.Failed(done));
+        }
+        return (done.Status, done.Reason);
     }
 
     private void ClearCalibrationResult()
@@ -1075,5 +1264,5 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
         if (transport is IAsyncDisposable disposable) { try { await disposable.DisposeAsync(); } catch { } }
         transport = null; client = null; workflow = null;
     }
-    public async ValueTask DisposeAsync() { NumericInputNotifier.InvalidNumberEntered -= OnInvalidNumericInput; toastCancellation?.Cancel(); toastCancellation?.Dispose(); connectCancellation?.Cancel(); calibrationCancellation?.Cancel(); streamCancellation?.Cancel(); gameCancellation?.Cancel(); mappingCancellation?.Cancel(); guidedCancellation?.Cancel(); if (IsConnected && workflow is not null) { try { await workflow.RequestAsync(ProtocolConstants.FrameType.ExitConfig, []); } catch { } } await DisconnectTransportAsync(); }
+    public async ValueTask DisposeAsync() { NumericInputNotifier.InvalidNumberEntered -= OnInvalidNumericInput; toastCancellation?.Cancel(); toastCancellation?.Dispose(); connectCancellation?.Cancel(); calibrationCancellation?.Cancel(); streamCancellation?.Cancel(); gameCancellation?.Cancel(); mappingCancellation?.Cancel(); guidedCancellation?.Cancel(); await StopMcpServerAsync(); if (IsConnected && workflow is not null) { try { await workflow.RequestAsync(ProtocolConstants.FrameType.ExitConfig, []); } catch { } } await DisconnectTransportAsync(); }
 }
