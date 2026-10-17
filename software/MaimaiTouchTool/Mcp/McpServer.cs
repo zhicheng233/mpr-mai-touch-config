@@ -20,29 +20,29 @@ public static class McpServer
 
     private static readonly JsonObject[] ToolDefinitions =
     [
-        Tool("connect", "打开串口并进入配置模式（容忍已处于配置模式）", ("port", ("string", "串口名，如 COM3"))),
+        Tool("connect", "打开串口并进入配置模式（容忍已处于配置模式）", Req("port", ("string", "串口名，如 COM3"))),
         Tool("disconnect", "退出配置模式并断开串口"),
         Tool("get_config", "读取当前已应用配置"),
-        Tool("set_board", "暂存某个 MPR121 板的响应参数（需 apply 才生效）",
-            ("board", ("integer", "板号 1-4")),
-            ("baseThreshold", ("integer", "基础阈值 1-255")),
-            ("sensOffset", ("integer", "灵敏度偏移 -127..127")),
-            ("touchDebounce", ("integer", "触摸去抖 0-7")),
-            ("releaseDebounce", ("integer", "释放去抖 0-7")),
-            ("sfi", ("integer", "SFI 0-3")),
-            ("esi", ("integer", "ESI 0-7"))),
+        Tool("set_board", "暂存某个 MPR121 板的响应参数（需 apply 才生效；未传的字段保持原值）",
+            Req("board", ("integer", "板号 1-4")),
+            Opt("baseThreshold", ("integer", "基础阈值 1-255")),
+            Opt("sensOffset", ("integer", "灵敏度偏移 -127..127")),
+            Opt("touchDebounce", ("integer", "触摸去抖 0-7")),
+            Opt("releaseDebounce", ("integer", "释放去抖 0-7")),
+            Opt("sfi", ("integer", "SFI 0-3")),
+            Opt("esi", ("integer", "ESI 0-7"))),
         Tool("set_electrode", "暂存某个游戏键的电极偏移（需 apply 才生效）",
-            ("key", ("string", "键名，如 A1 或 E8")),
-            ("offset", ("integer", "电极偏移 -127..127"))),
+            Req("key", ("string", "键名，如 A1 或 E8")),
+            Req("offset", ("integer", "电极偏移 -127..127"))),
         Tool("set_mapping", "暂存某个游戏键的板/通道映射（板号 1-4，通道 0-11；需 apply 才生效；34 键通道必须互不重复）",
-            ("key", ("string", "键名，如 A1 或 E8")),
-            ("board", ("integer", "板号 1-4")),
-            ("channel", ("integer", "通道 0-11"))),
+            Req("key", ("string", "键名，如 A1 或 E8")),
+            Req("board", ("integer", "板号 1-4")),
+            Req("channel", ("integer", "通道 0-11"))),
         Tool("apply", "SET_CFG + APPLY_CFG + 读回校验，使暂存配置生效"),
         Tool("save", "SAVE_CFG，把已应用配置写入 EEPROM"),
         Tool("calibrate", "触发自动校准并等待结果"),
         Tool("read_telemetry", "流式读取调试遥测若干毫秒，返回 48 通道 filtered/baseline 与触摸位图摘要",
-            ("durationMs", ("integer", "采样时长（毫秒），默认 1000"))),
+            Opt("durationMs", ("integer", "采样时长（毫秒），默认 1000"))),
     ];
 
     public static async Task RunAsync()
@@ -123,6 +123,7 @@ public static class McpServer
     private static async Task<string> ConnectAsync(JsonObject args)
     {
         var port = args["port"]?.GetValue<string>() ?? throw new InvalidOperationException("port is required");
+        await TryDisconnectAsync(); // 重复 connect 时先释放上一个串口，避免句柄泄漏
         var serial = new SerialTransport(new SerialByteStream(port));
         transport = serial;
         workflow = new ConfigurationWorkflow(serial);
@@ -170,6 +171,7 @@ public static class McpServer
 
     private static string GetConfig()
     {
+        if (workflow is null) throw new InvalidOperationException("not connected; call connect first");
         return JsonSerializer.Serialize(ConfigToJson(applied));
     }
 
@@ -292,14 +294,14 @@ public static class McpServer
             ["board"] = KeyMapping.BoardOf(p) + 1, ["channel"] = KeyMapping.ChannelOf(p) }).ToArray()),
     };
 
-    private static JsonObject Tool(string name, string description, params (string, (string, string))[] parameters)
+    private static JsonObject Tool(string name, string description, params (string Name, (string Type, string Description) Spec, bool Required)[] parameters)
     {
         var properties = new JsonObject();
         var required = new JsonArray();
-        foreach (var (pname, (ptype, pdesc)) in parameters)
+        foreach (var (pname, (ptype, pdesc), isRequired) in parameters)
         {
             properties[pname] = new JsonObject { ["type"] = ptype, ["description"] = pdesc };
-            required.Add(pname);
+            if (isRequired) required.Add(pname);
         }
         return new JsonObject
         {
@@ -308,6 +310,10 @@ public static class McpServer
             ["inputSchema"] = new JsonObject { ["type"] = "object", ["properties"] = properties, ["required"] = required },
         };
     }
+
+    private static (string, (string, string), bool) Req(string name, (string Type, string Description) spec) => (name, spec, true);
+
+    private static (string, (string, string), bool) Opt(string name, (string Type, string Description) spec) => (name, spec, false);
 
     private static Task WriteAsync(StreamWriter writer, JsonObject message) => writer.WriteLineAsync(message.ToJsonString());
 }
