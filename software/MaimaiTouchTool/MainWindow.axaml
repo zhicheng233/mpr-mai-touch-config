@@ -231,22 +231,24 @@
               <TextBlock Foreground="#E8A0A0" TextWrapping="Wrap" Text="{DynamicResource Config.Mapping.Conflict}"/>
             </Border>
 
-            <!-- 4 块 PCB 图形：焊盘即通道，点击焊盘在弹出列表里选键 -->
+            <!-- 4 块 PCB 图形（两块板一行）：完整 PCB 全貌，焊盘即通道，点焊盘在弹出列表里选键 -->
             <ItemsControl ItemsSource="{Binding Editor.BoardMappings}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                  <UniformGrid Columns="2"/>
+                </ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
               <ItemsControl.ItemTemplate>
                 <DataTemplate>
                   <Border Background="#181C21" BorderBrush="#39414A" BorderThickness="1" CornerRadius="6" Margin="0,0,8,8" Padding="10">
                     <StackPanel Spacing="6">
-                      <Grid ColumnDefinitions="Auto,Auto,*">
+                      <Grid ColumnDefinitions="Auto,Auto">
                         <TextBlock FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center" Foreground="#D8B46A" Text="{Binding Label}"/>
-                        <ComboBox Grid.Column="1" Margin="8,0,0,0" MinWidth="84" ItemsSource="{Binding AddressItems}" SelectedIndex="{Binding Slot}"/>
-                        <TextBlock Grid.Column="2" Margin="8,0,0,0" VerticalAlignment="Center" FontSize="11" Foreground="#7F8A95" Text="{DynamicResource Config.Mapping.SwapHint}"/>
+                        <ComboBox Grid.Column="1" Margin="8,0,0,0" MinWidth="84" ItemsSource="{Binding AddressItems}" SelectedIndex="{Binding Slot}" ToolTip.Tip="{DynamicResource Config.Mapping.SwapHint}"/>
                       </Grid>
-                      <Viewbox Stretch="Uniform" Height="170">
-                        <!-- 只显示 mpr121.svg 底部的电极接口区（焊盘 + 0..11 丝印），
-                             坐标空间仍是完整的 660×440，所以焊盘覆盖层位置不用改。 -->
-                        <Border Width="660" Height="170" ClipToBounds="True">
-                          <Panel Width="660" Height="440" Margin="0,-270,0,0">
+                      <!-- 完整 mpr121.svg（660×440），等比缩放到卡片宽度 -->
+                      <Viewbox Stretch="Uniform" StretchDirection="DownOnly" MaxHeight="300">
+                        <Panel Width="660" Height="440">
                           <Image Width="660" Height="440" Stretch="Fill" Source="{Binding SvgPath, Converter={StaticResource SvgPathConverter}}"/>
                           <ItemsControl ItemsSource="{Binding Channels}">
                             <ItemsControl.ItemsPanel>
@@ -278,13 +280,12 @@
                                       </ScrollViewer>
                                     </Flyout>
                                   </Button.Flyout>
-                                  <TextBlock FontSize="12" FontWeight="SemiBold" Foreground="{Binding PadLabelBrush}" Text="{Binding PadLabel}"/>
+                                  <TextBlock FontSize="15" FontWeight="SemiBold" Foreground="{Binding PadLabelBrush}" Text="{Binding PadLabel}"/>
                                 </Button>
                               </DataTemplate>
                             </ItemsControl.ItemTemplate>
                           </ItemsControl>
-                          </Panel>
-                        </Border>
+                        </Panel>
                       </Viewbox>
                     </StackPanel>
                   </Border>
@@ -292,7 +293,7 @@
               </ItemsControl.ItemTemplate>
             </ItemsControl>
 
-            <!-- 每块板的通道列表（板号 · 地址 + CH00..CH11 下拉） -->
+            <!-- 每块板的通道列表（板号 · 地址 + 通道下拉），与上面的 PCB 图分开 -->
             <TextBlock Classes="section" Margin="0,6,0,0" Text="{DynamicResource Config.Mapping.List}"/>
             <ItemsControl ItemsSource="{Binding Editor.BoardMappings}">
               <ItemsControl.ItemTemplate>
