@@ -2,7 +2,9 @@ namespace MaimaiTouchTool.Protocol;
 
 /// <summary>
 /// 解析固件在 GAME 模式输出的 9 字节传统游戏帧：'(' + 7×5-bit chunk + ')'。
-/// 34 位触摸位按 LSB-first 打包（chunk[i] 占位 5*i..5*i+4），与 <see cref="LegacyCodec.EncodeGameFrame"/> 互逆。
+/// 34 位触摸位按 LSB-first 打包（chunk[i] 占位 5*i..5*i+4），
+/// 其中 key k 占 34 位值的第 k 位（A1=bit 0、E8=bit 33），与参考固件 TouchSend 一致。
+/// 与 <see cref="LegacyCodec.EncodeGameFrame"/> 互逆。
 /// 扫描式解析：遇到噪声/不完整帧不产出、不抛异常。
 /// </summary>
 public sealed class GameFrameParser

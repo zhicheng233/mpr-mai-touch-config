@@ -880,7 +880,7 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
             var stream = await transport.StreamDebugEventsAsync(ProtocolConstants.DefaultStreamRateHz, sample =>
             {
                 Telemetry.AddFrame(sample.Frame, sample.Sequence, sample.ReceivedAt);
-                for (var i = 0; i < TouchKeys.Count; i++) TouchKeys[i].IsPressed = (sample.Frame.TouchBits & (1UL << (33 - i))) != 0;
+                for (var i = 0; i < TouchKeys.Count; i++) TouchKeys[i].IsPressed = (sample.Frame.TouchBits & (1UL << i)) != 0;
             }, error => Telemetry.MarkMalformed(Localizer.Instance["Msg.MalformedFrame"] + error.Message), streamCancellation.Token, info => Telemetry.SetAcceptedRate(info.AcceptedRateHz, info.ActualRateHz));
             Telemetry.SetAcceptedRate(stream.AcceptedRateHz, stream.ActualRateHz);
         }
@@ -955,7 +955,7 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
         UpdateGuidedUi(session);
         Avalonia.Threading.Dispatcher.UIThread.Post(() =>
         {
-            for (var i = 0; i < TouchKeys.Count; i++) TouchKeys[i].IsPressed = (sample.Frame.TouchBits & (1UL << (33 - i))) != 0;
+            for (var i = 0; i < TouchKeys.Count; i++) TouchKeys[i].IsPressed = (sample.Frame.TouchBits & (1UL << i)) != 0;
         });
     }
 
@@ -1132,7 +1132,7 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
         UpdateMappingUi(session);
         Avalonia.Threading.Dispatcher.UIThread.Post(() =>
         {
-            for (var i = 0; i < TouchKeys.Count; i++) TouchKeys[i].IsPressed = (sample.Frame.TouchBits & (1UL << (33 - i))) != 0;
+            for (var i = 0; i < TouchKeys.Count; i++) TouchKeys[i].IsPressed = (sample.Frame.TouchBits & (1UL << i)) != 0;
         });
     }
 
@@ -1241,7 +1241,7 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
 
     private void ApplyGameBits(ulong bits)
     {
-        for (var i = 0; i < TouchKeys.Count; i++) TouchKeys[i].IsPressed = (bits & (1UL << (33 - i))) != 0;
+        for (var i = 0; i < TouchKeys.Count; i++) TouchKeys[i].IsPressed = (bits & (1UL << i)) != 0;
         gameFrameCount++;
     }
 

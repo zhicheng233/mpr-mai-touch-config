@@ -20,7 +20,7 @@ public sealed class TelemetryReportTests
         var baselineValues = new ushort[ChannelCount];
         filteredValues[channel] = filtered;
         baselineValues[channel] = baseline;
-        var bits = touched && keyIndex >= 0 ? 1UL << (33 - keyIndex) : 0UL;
+        var bits = touched && keyIndex >= 0 ? 1UL << keyIndex : 0UL;
         return new DebugFrame(timestamp, bits, filteredValues, baselineValues, new byte[4], 0);
     }
 

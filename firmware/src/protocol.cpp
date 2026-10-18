@@ -201,9 +201,11 @@ FrameResult decodeFrame(const uint8_t* input, uint16_t inputLength, Frame* outpu
 uint64_t packKeyBits(const bool* keys) {
   if (keys == nullptr) return 0;
   uint64_t value = 0;
-  // The frozen compatibility vectors define key i at value bit 33-i.
+  // 与参考固件 TouchSend 逐位一致：它从 i=33 倒着左移，等价于 key i 占 value 的第 i 位，
+  // 也就是 A1(key 0) 落在 bit 0、E8(key 33) 落在 bit 33。写成 bit 33-i 会把整帧镜像，
+  // 游戏里按 A1 收到的是 E8。
   for (uint8_t i = 0; i < KeyCount; ++i) {
-    if (keys[i]) value |= 1ULL << (KeyCount - 1 - i);
+    if (keys[i]) value |= 1ULL << i;
   }
   return value;
 }

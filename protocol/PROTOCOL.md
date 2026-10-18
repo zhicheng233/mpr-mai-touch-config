@@ -225,9 +225,16 @@ for chunk = 0..6:
     value >>= 5
 ```
 
-`key[i]` is bit `33-i` of the 34-bit value, and output byte
+`key[i]` is bit `i` of the 34-bit value, and output byte
 `1+q` contains value bits `5q..5q+4`, least-significant chunk first. Byte 7's
 top two bits are zero. This output is binary bytes, not printable base64.
+
+The reference firmware (`maimaiTouchControl.ino`, `TouchSend`) builds the value
+by shifting left from `i = 33` down to `0`, which is exactly `key[i]` at value
+bit `i`; A1 is bit 0 and E8 is bit 33. Note in particular that this is *not* a
+mirror (`33-i`). Mirroring the frame swaps A1 with E8, A2 with E7, and so on,
+which the game sees as a completely wrong key layout even when the tool's own
+mapping view looks correct.
 
 The framer always emits `key[0..33]` in the fixed
 `A1..A8, B1..B8, C1..C2, D1..D8, E1..E8` order, so remapping a key changes which
@@ -513,8 +520,8 @@ The five `touch` bytes are the little-endian encoding of the same 34-bit value
 used by the legacy seven chunks: byte 0 contains value bits 0..7, byte 1 bits
 8..15, byte 2 bits 16..23, byte 3 bits 24..31, and byte 4 contains value bits
 32..33 in its low two bits; the upper six bits of byte 4 are zero. The value
-bit for key `i` is `33-i` as defined in section 4.1. For example, A1 is
-`00 00 00 00 02`, E8 is `01 00 00 00 00`, and all 34 keys are
+bit for key `i` is `i` as defined in section 4.1. For example, A1 is
+`01 00 00 00 00`, E8 is `00 00 00 00 02`, and all 34 keys are
 `FF FF FF FF 03`.
 
 ## 6. Errors and timeouts

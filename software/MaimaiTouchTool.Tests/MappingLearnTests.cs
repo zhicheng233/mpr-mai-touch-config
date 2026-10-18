@@ -242,7 +242,7 @@ public sealed class KeyMappingEditorTests
         Assert.Equal("unmapped", telemetry.Channels[40].KeyLabel);
 
         // TouchBits 位 33-0 = 键 0 → 通道 8 显示为触摸，通道 40 不是。
-        var frame = new DebugFrame(0, 1UL << 33, new ushort[48], new ushort[48], new byte[4], 0);
+        var frame = new DebugFrame(0, 1UL << 0, new ushort[48], new ushort[48], new byte[4], 0);
         telemetry.AddFrame(frame, 1, DateTimeOffset.UtcNow);
         Assert.True(telemetry.Channels[8].IsTouched);
         Assert.False(telemetry.Channels[40].IsTouched);

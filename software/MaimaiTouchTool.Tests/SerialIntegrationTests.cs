@@ -384,9 +384,9 @@ public sealed class SerialIntegrationTests
         await WaitFor(() => endpoint.Requests.Exists(r => r.Type == (byte)ProtocolConstants.FrameType.ExitConfig));
         await WaitFor(() => endpoint.Mode == ProtocolConstants.DeviceMode.Game);
 
-        // 固件约定：key k -> 34 位值的 bit 33-k。按下 A1（key 0）与 C1（key 24，bit 9）。
-        endpoint.InjectRaw(BuildGameFrame(1UL << 33 | 1UL << 9));
-        await WaitFor(() => viewModel.TouchKeys[0].IsPressed && viewModel.TouchKeys[24].IsPressed);
+        // 固件约定：key k -> 34 位值的 bit k（A1 是 key 0 -> bit 0，C1 是 key 16 -> bit 16）。
+        endpoint.InjectRaw(BuildGameFrame(1UL << 0 | 1UL << 16));
+        await WaitFor(() => viewModel.TouchKeys[0].IsPressed && viewModel.TouchKeys[16].IsPressed);
 
         Assert.False(viewModel.TouchKeys[1].IsPressed);
         // 游戏模式/调试流期间不允许 Apply/Save/Readback：端口被流循环独占，另外发请求只会超时。

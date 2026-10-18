@@ -88,7 +88,7 @@ public sealed class TelemetryAccumulator
             if (drop > maxDrop[channel]) maxDrop[channel] = drop;
 
             var keyIndex = channelToKey[channel];
-            var touched = keyIndex >= 0 && (frame.TouchBits & (1UL << (33 - keyIndex))) != 0;
+            var touched = keyIndex >= 0 && (frame.TouchBits & (1UL << keyIndex)) != 0;
             if (touched)
             {
                 touchedFrames[channel]++;

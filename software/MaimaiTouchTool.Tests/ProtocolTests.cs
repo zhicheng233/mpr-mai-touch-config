@@ -254,7 +254,7 @@ public sealed class ProtocolTests
     public void TelemetryProjectsPhysicalChannelsAndTouchKeys()
     {
         var telemetry = new TelemetrySessionModel();
-        var frame = new DebugFrame(1000, 1UL << 27, Enumerable.Range(0, 48).Select(i => (ushort)(500 + i)).ToArray(), Enumerable.Range(0, 48).Select(i => (ushort)(700 + i)).ToArray(), [7, 7, 7, 7], 0);
+        var frame = new DebugFrame(1000, 1UL << 6, Enumerable.Range(0, 48).Select(i => (ushort)(500 + i)).ToArray(), Enumerable.Range(0, 48).Select(i => (ushort)(700 + i)).ToArray(), [7, 7, 7, 7], 0);
         telemetry.Begin(100);
         telemetry.AddFrame(frame, 0, DateTimeOffset.UnixEpoch);
         Assert.Equal(48, telemetry.Channels.Count);

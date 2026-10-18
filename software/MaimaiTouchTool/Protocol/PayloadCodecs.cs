@@ -61,5 +61,20 @@ public sealed record DebugFrame(uint TimestampMs, ulong TouchBits, ushort[] Filt
 public static class LegacyCodec
 {
     public static bool IsCommand(ReadOnlySpan<byte> bytes) => bytes.Length == 6 && bytes[0] == (byte)'{' && bytes[5] == (byte)'}';
-    public static byte[] EncodeGameFrame(ReadOnlySpan<bool> keys) { if (keys.Length != 34) throw new ArgumentException("Exactly 34 keys required."); ulong value = 0; for (var i = 33; i >= 0; i--) value = (value << 1) | (keys[i] ? 1UL : 0); var b = new byte[9]; b[0] = (byte)'('; for (var i = 0; i < 7; i++) b[1 + i] = (byte)((value >> (5 * i)) & 0x1F); b[8] = (byte)')'; return b; }
+    /// <summary>
+    /// 编码固件 GAME 模式的 9 字节传统游戏帧：'(' + 7×5-bit chunk + ')'。
+    /// 位序与参考固件 maimaiTouchControl.ino 的 TouchSend 完全一致：它从 i=33 倒着左移，
+    /// 等价于 key i 占 34 位值的第 i 位（A1 在 bit 0、E8 在 bit 33）。
+    /// </summary>
+    public static byte[] EncodeGameFrame(ReadOnlySpan<bool> keys)
+    {
+        if (keys.Length != 34) throw new ArgumentException("Exactly 34 keys required.");
+        ulong value = 0;
+        for (var i = 0; i < 34; i++) if (keys[i]) value |= 1UL << i;
+        var b = new byte[9];
+        b[0] = (byte)'(';
+        for (var i = 0; i < 7; i++) b[1 + i] = (byte)((value >> (5 * i)) & 0x1F);
+        b[8] = (byte)')';
+        return b;
+    }
 }

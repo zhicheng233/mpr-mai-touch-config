@@ -214,7 +214,7 @@ public sealed class TelemetrySessionModel : NotifyModel
         for (var index = 0; index < Channels.Count; index++)
         {
             var keyIndex = KeyMapping.KeyIndexForChannel(keyMap, index);
-            var touched = keyIndex >= 0 && (frame.TouchBits & (1UL << (33 - keyIndex))) != 0;
+            var touched = keyIndex >= 0 && (frame.TouchBits & (1UL << keyIndex)) != 0;
             Channels[index].Apply(frame.Filtered[index], frame.Baseline[index], touched, frame.ChipStatus[index / 12]);
         }
         if (Health is not TelemetryHealth.Error and not TelemetryHealth.Disconnected) Health = Chips.All(chip => chip.IsHealthy) ? TelemetryHealth.Healthy : TelemetryHealth.Degraded;

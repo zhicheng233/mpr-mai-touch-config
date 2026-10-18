@@ -11,6 +11,13 @@ constexpr uint16_t DefaultCalibrationWindowMs = 1000;
 constexpr uint16_t MaxStreamRateHz = 100;
 constexpr uint16_t HardwareThresholdScale = 4;
 constexpr uint16_t MaxHardwareSoftwareDelta = 255 * HardwareThresholdScale;
+// CONFIG2 的 CDT 位（bit 7..5）。参考固件用 1，即 2^(CDT-2)=0.5µs。
+// 这是 applyConfig 每次重写 SFI/ESI 时必须原样保留的部分，不能跟着一起清零。
+constexpr uint8_t ChargeDischargeTime = 1;
+// CONFIG2 的 SFI（bit 4..3）与 ESI（bit 2..0）默认值，对应参考固件
+// SECOND_FILTER_ITERATIONS=2（10 个采样）与 ELECTRODE_SAMPLE_INTERVAL=0（1ms）。
+constexpr uint8_t DefaultSfi = 2;
+constexpr uint8_t DefaultEsi = 0;
 
 // MPR121 thresholds are 8-bit while software decisions use 10-bit counts.
 // Quantize upward against the baseline's four-count hardware resolution and
@@ -47,7 +54,7 @@ class Mpr121Hardware {
  private:
   // 与参考固件 maimaiTouchControl 的 MprSetup 保持一致：开启 AUTOCONFIG 与基线跟踪。
   // 否则大尺寸 ITO 电极在固定 16µA 下充不满，filtered/baseline 趋近 0，触摸永不触发。
-  void configureHardware(uint8_t board);
+  bool configureHardware(uint8_t board);
   bool online_[touchmap::BoardCount] = {};
   bool initialized_[touchmap::BoardCount] = {};
   uint16_t i2cErrors_ = 0;
