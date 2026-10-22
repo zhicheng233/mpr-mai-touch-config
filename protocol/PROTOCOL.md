@@ -597,6 +597,15 @@ committed new slot. SAVE_CFG rate limiting and EEPROM endurance policy are
 implementation requirements; SAVE_CFG must never implicitly run on SET_CFG or
 APPLY_CFG.
 
+The dual-slot power-loss guarantee only holds when the two slots live in two
+**separate flash erase regions** and the backend commits just the slot being
+written. On SAMD21 the firmware uses two independent `FlashStorage` instances
+(one per 128-byte slot), so erasing/rewriting the new slot never touches the
+previous slot. Do not merge both slots back into a single flash-emulated EEPROM
+object: its `commit()` erases and rewrites the whole region, and a power cut
+during that window destroys both slots at once — exactly the "掉数据" failure
+that this layout fixes.
+
 The tool's JSON mirror stores the same schema-2 config fields (including the
 34-entry `keymap`), the device identity rules from VERSION, and a
 dirty/applied/persisted status. On first connection, device EEPROM is

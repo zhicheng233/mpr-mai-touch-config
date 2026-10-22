@@ -18,6 +18,19 @@ class MemoryEeprom final : public eeprom_store::Backend {
   uint8_t bytes[eeprom_store::SlotSize * eeprom_store::SlotCount];
 };
 
+// 记录 commit(slot) 收到的槽号，用于验证 save() 只提交被写的那一槽
+//（双槽掉电保护的前提：写新槽不能触发旧槽所在 flash 区域的擦写）。
+class TrackingEeprom final : public eeprom_store::Backend {
+ public:
+  TrackingEeprom() { memset(bytes, 0xFF, sizeof(bytes)); }
+  uint8_t read(uint16_t address) const override { return bytes[address]; }
+  void write(uint16_t address, uint8_t value) override { bytes[address] = value; }
+  void commit(uint8_t slot) override { committedSlots[commits++] = slot; }
+  uint8_t bytes[eeprom_store::SlotSize * eeprom_store::SlotCount];
+  uint8_t committedSlots[8] = {};
+  uint8_t commits = 0;
+};
+
 struct CalibrationHardware {
   config::Config installed;
   bool failNext = false;
@@ -597,6 +610,15 @@ int main() {
   assert(eeprom_store::load(variant, &variantLoaded, &generation, &persisted, &activeSlot));
   assert(persisted && variantLoaded.keyMap[0] == stored.keyMap[0] &&
          variantLoaded.keyMap[1] == stored.keyMap[1]);
+
+  // save() 必须把 commit 精确路由到被写的那一槽，而不是无差别提交整块区域。
+  {
+    TrackingEeprom tracking;
+    assert(eeprom_store::save(tracking, stored, 1, 0));
+    assert(tracking.commits == 1 && tracking.committedSlots[0] == 0);
+    assert(eeprom_store::save(tracking, stored, 2, 1));
+    assert(tracking.commits == 2 && tracking.committedSlots[1] == 1);
+  }
 
   checkAllLegacyVectors();
   const uint8_t empty[] = {0, 0, 0, 0, 0, 0, 0};

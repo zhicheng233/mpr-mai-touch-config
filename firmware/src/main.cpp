@@ -3,7 +3,7 @@
 #ifdef ARDUINO
 #include <Arduino.h>
 #if defined(ARDUINO_ARCH_SAMD)
-#include <FlashAsEEPROM.h>
+#include <FlashStorage.h>
 #else
 #include <EEPROM.h>
 #endif
@@ -29,10 +29,27 @@ namespace {
 enum class FirmwareMode : uint8_t { GAME = 0, CONFIG_IDLE = 1, STREAMING = 2, CALIBRATING = 3 };
 constexpr uint16_t RuntimeFrameLength = firmware_state::DebugPayloadLength + 10;
 
+#if defined(ARDUINO_ARCH_SAMD)
+// 每个槽一块独立、256 字节对齐的 flash 区域，互不重叠，擦写互不影响。
+// 之前用 FlashAsEEPROM 的单一 1024 字节 EEPROM：两个槽挤在同一块区域里，
+// commit() 会整块 erase 再 write；断电发生在两者之间时两个槽一起丢，
+// 固件里的双槽 + 提交标记保护形同虚设。拆开后写新槽不会再擦掉旧槽。
+struct EepromSlotBuffer {
+  uint8_t bytes[eeprom_store::SlotSize];
+};
+FlashStorage(slot0_storage, EepromSlotBuffer);
+FlashStorage(slot1_storage, EepromSlotBuffer);
+#endif
+
 class ArduinoEeprom final : public eeprom_store::Backend {
  public:
   uint8_t read(uint16_t address) const override {
-#ifdef ARDUINO
+#if defined(ARDUINO_ARCH_SAMD)
+    const uint8_t slot = static_cast<uint8_t>(address / eeprom_store::SlotSize);
+    const uint8_t offset = static_cast<uint8_t>(address % eeprom_store::SlotSize);
+    loadSlot(slot);
+    return buffers[slot].bytes[offset];
+#elif defined(ARDUINO)
     return EEPROM.read(address);
 #else
     (void)address;
@@ -40,21 +57,47 @@ class ArduinoEeprom final : public eeprom_store::Backend {
 #endif
   }
   void write(uint16_t address, uint8_t value) override {
-#ifdef ARDUINO
+#if defined(ARDUINO_ARCH_SAMD)
+    const uint8_t slot = static_cast<uint8_t>(address / eeprom_store::SlotSize);
+    const uint8_t offset = static_cast<uint8_t>(address % eeprom_store::SlotSize);
+    loadSlot(slot);
+    if (buffers[slot].bytes[offset] != value) {
+      buffers[slot].bytes[offset] = value;
+      dirty[slot] = true;
+    }
+#elif defined(ARDUINO)
     EEPROM.update(address, value);
 #else
     (void)address;
     (void)value;
 #endif
   }
-  void commit() override {
+  void commit(uint8_t slot) override {
 #if defined(ARDUINO_ARCH_SAMD)
-    // SAMD21 用 FlashStorage 的 EEPROM 模拟：写缓冲，commit 才真正写 flash
-    EEPROM.commit();
+    if (slot >= eeprom_store::SlotCount || !dirty[slot]) return;
+    // 只写这一槽：写新槽时旧槽所在区域分毫不动。
+    storage(slot).write(buffers[slot]);
+    dirty[slot] = false;
 #else
+    (void)slot;
     // AVR 真 EEPROM 立即写，无需 commit
 #endif
   }
+
+ private:
+#if defined(ARDUINO_ARCH_SAMD)
+  void loadSlot(uint8_t slot) const {
+    if (loaded[slot]) return;
+    buffers[slot] = storage(slot).read();
+    loaded[slot] = true;
+  }
+  static FlashStorageClass<EepromSlotBuffer>& storage(uint8_t slot) {
+    return slot == 0 ? slot0_storage : slot1_storage;
+  }
+  mutable EepromSlotBuffer buffers[eeprom_store::SlotCount];
+  mutable bool loaded[eeprom_store::SlotCount] = {false, false};
+  bool dirty[eeprom_store::SlotCount] = {false, false};
+#endif
 };
 
 FirmwareMode mode = FirmwareMode::GAME;

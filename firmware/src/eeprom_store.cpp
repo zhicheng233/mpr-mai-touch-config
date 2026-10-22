@@ -120,7 +120,9 @@ bool save(Backend& backend, const config::Config& value, uint32_t generation,
   }
   backend.write(base + 3, CommitMarker);
   if (backend.read(base + 3) != CommitMarker) return false;
-  backend.commit();  // SAMD21 flash 模拟 EEPROM 需要显式落盘；AVR 上为 no-op
+  // 只提交当前槽：两个槽各自一块独立 flash 区域，写新槽不会擦掉旧槽，
+  // 因此断电时旧槽（上一代有效记录）依然完整，双槽的掉电保护才真正成立。
+  backend.commit(slot);
   return true;
 }
 

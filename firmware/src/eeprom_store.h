@@ -22,8 +22,9 @@ class Backend {
   virtual ~Backend() = default;
   virtual uint8_t read(uint16_t address) const = 0;
   virtual void write(uint16_t address, uint8_t value) = 0;
-  // 把缓冲的写操作落盘（flash 模拟 EEPROM 需要；AVR 真 EEPROM 立即写，无需实现）。
-  virtual void commit() {}
+  // 把指定槽（0/1）的缓冲写操作落盘。flash 模拟 EEPROM 每个槽一块独立区域、
+  // 擦写互不影响，因此只提交被写过的那一槽即可；AVR 真 EEPROM 立即写，无需实现。
+  virtual void commit(uint8_t slot) { (void)slot; }
 };
 
 bool load(Backend& backend, config::Config* output, uint32_t* generation,

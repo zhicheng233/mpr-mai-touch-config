@@ -682,7 +682,7 @@
                 <TextBlock Grid.Column="1" VerticalAlignment="Center" TextWrapping="Wrap"
                            Text="{Binding FirmwareInfo.FlashStatus}" IsVisible="{Binding FirmwareInfo.HasFlashStatus}"/>
               </Grid>
-              <Expander Header="{DynamicResource Fw.Log}" IsExpanded="True">
+              <Expander Header="{DynamicResource Fw.Log}" IsExpanded="True" HorizontalAlignment="Stretch">
                 <ScrollViewer MaxHeight="260" HorizontalScrollBarVisibility="Auto">
                   <SelectableTextBlock FontFamily="Consolas,Menlo,monospace" FontSize="11" TextWrapping="NoWrap"
                                        Text="{Binding FirmwareInfo.FlashLog}"/>
