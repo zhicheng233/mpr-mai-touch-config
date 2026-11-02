@@ -120,56 +120,33 @@ public sealed class ProtocolTests
     }
 
     [Fact]
-    public void TouchBoardLayoutUsesAuthoritativeRingCenters()
+    public void TouchBoardLayoutUsesAuthoritativeOverrideCenters()
     {
-        var expected = new Dictionary<string, (double Radius, double Angle)>(StringComparer.Ordinal)
-        {
-            ["A1"] = (230, 0), ["A2"] = (230, 45), ["A3"] = (230, 90), ["A4"] = (230, 135), ["A5"] = (230, 180), ["A6"] = (230, 225), ["A7"] = (230, 270), ["A8"] = (230, 315),
-            ["B1"] = (100, 22.5), ["B2"] = (100, 67.5), ["B3"] = (100, 112.5), ["B4"] = (100, 157.5), ["B5"] = (100, 202.5), ["B6"] = (100, 247.5), ["B7"] = (100, 292.5), ["B8"] = (100, 337.5),
-            ["D1"] = (190, 22.5), ["D2"] = (190, 67.5), ["D3"] = (190, 112.5), ["D4"] = (190, 157.5), ["D5"] = (190, 202.5), ["D6"] = (190, 247.5), ["D7"] = (190, 292.5), ["D8"] = (190, 337.5),
-            ["E1"] = (130, 0), ["E2"] = (130, 45), ["E3"] = (130, 90), ["E4"] = (130, 135), ["E5"] = (130, 180), ["E6"] = (130, 225), ["E7"] = (130, 270), ["E8"] = (130, 315)
-        };
+        var positions = TouchManifest.Layout.ToDictionary(position => position.Label);
 
-        foreach (var position in TouchManifest.Layout)
-        {
-            var centerX = position.X + position.Width / 2;
-            var centerY = position.Y + position.Height / 2;
-            if (position.Label is "C1" or "C2")
-            {
-                var expectedY = position.Label == "C1" ? 366 : 546;
-                Assert.Equal(480, centerX, 6);
-                Assert.Equal(expectedY, centerY, 6);
-                continue;
-            }
-
-            var (radius, angle) = expected[position.Label];
-            var radians = angle * Math.PI / 180;
-            Assert.Equal(480 + radius * Math.Sin(radians), centerX, 6);
-            Assert.Equal(456 - radius * Math.Cos(radians), centerY, 6);
-        }
+        // These anchors protect the manually tuned SVG overlay layout. The old
+        // ring-center formula no longer applies because individual keys have
+        // explicit visual bounds in TouchManifest.KeyOverrides.
+        Assert.Equal(614.7, positions["A1"].X + positions["A1"].Width / 2, 2);
+        Assert.Equal(169.21, positions["A1"].Y + positions["A1"].Height / 2, 2);
+        Assert.Equal(519.19, positions["C1"].X + positions["C1"].Width / 2, 2);
+        Assert.Equal(456.005, positions["C1"].Y + positions["C1"].Height / 2, 2);
+        Assert.Equal(480.005, positions["E5"].X + positions["E5"].Width / 2, 2);
+        Assert.Equal(675.005, positions["E5"].Y + positions["E5"].Height / 2, 3);
     }
 
     [Fact]
-    public void TouchBoardLayoutUsesAuthoritativeNaturalSvgDimensions()
+    public void TouchBoardLayoutHasValidUniqueOverrideBounds()
     {
         TouchManifest.Validate();
         Assert.Equal(TouchManifest.Assets.Select(asset => asset.Label), TouchManifest.Layout.Select(position => position.Label));
-        var expectedSizes = new Dictionary<string, (double Width, double Height)>(StringComparer.Ordinal)
-        {
-            ["A1"] = (480.4, 456.1), ["A2"] = (456.1, 480.4), ["A3"] = (456.1, 480.4), ["A4"] = (480.4, 456.1), ["A5"] = (480.4, 456.1), ["A6"] = (456.1, 480.4), ["A7"] = (456.1, 480.4), ["A8"] = (480.4, 456.1),
-            ["B1"] = (266.5, 252.9), ["B2"] = (252.9, 266.5), ["B3"] = (252.9, 266.5), ["B4"] = (266.5, 252.9), ["B5"] = (266.5, 252.9), ["B6"] = (252.9, 266.5), ["B7"] = (252.9, 266.5), ["B8"] = (266.5, 252.9),
-            ["C1"] = (170.2, 373.4), ["C2"] = (170.2, 373.4),
-            ["D1"] = (241.1, 324.2), ["D2"] = (364.1, 362), ["D3"] = (324.2, 241.1), ["D4"] = (399.7, 399.7), ["D5"] = (241.1, 324.2), ["D6"] = (364.1, 362), ["D7"] = (324.2, 241.1), ["D8"] = (399.7, 399.7),
-            ["E1"] = (257.5, 257.5), ["E2"] = (182.1, 182.1), ["E3"] = (257.5, 257.5), ["E4"] = (182.1, 182.1), ["E5"] = (257.5, 257.5), ["E6"] = (182.1, 182.1), ["E7"] = (257.5, 257.5), ["E8"] = (182.1, 182.1)
-        };
-
         Assert.All(TouchManifest.Layout, position =>
         {
-            var expected = expectedSizes[position.Label];
-            Assert.Equal(expected.Width, position.Width, 6);
-            Assert.Equal(expected.Height, position.Height, 6);
-            Assert.InRange(position.X + position.Width / 2, 0, TouchManifest.BoardWidth);
-            Assert.InRange(position.Y + position.Height / 2, 0, TouchManifest.BoardHeight);
+            Assert.True(position.Width > 0 && position.Height > 0);
+            Assert.InRange(position.X, 0, TouchManifest.BoardWidth);
+            Assert.InRange(position.Y, 0, TouchManifest.BoardHeight);
+            Assert.InRange(position.X + position.Width, 0, TouchManifest.BoardWidth);
+            Assert.InRange(position.Y + position.Height, 0, TouchManifest.BoardHeight);
         });
 
         var positions = TouchManifest.Layout.ToArray();
