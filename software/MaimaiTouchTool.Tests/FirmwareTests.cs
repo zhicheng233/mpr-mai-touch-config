@@ -118,6 +118,15 @@ public sealed class FirmwareTests
         Assert.Null(remote.Protocol);
     }
 
+    [Fact]
+    public void BuildMetadataIsKeptForDisplayButIgnoredForVersionOrdering()
+    {
+        var build = new FirmwareManifest("0.1.0+g1a2b3c4", null, null, "firmware.bin", null, null);
+
+        Assert.Equal("0.1.0+g1a2b3c4", build.Version);
+        Assert.Equal(FirmwareVersion.Parse("0.1.0"), build.Parsed);
+    }
+
     // ---- 版本比较驱动的"需要更新" ----
 
     [Fact]

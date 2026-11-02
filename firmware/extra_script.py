@@ -38,7 +38,10 @@ def parse_version_header(path):
 
 def write_manifest(source, target, env):  # noqa: ARG001
     info = parse_version_header(SRC)
-    version = "%d.%d.%d" % (info["major"], info["minor"], info["patch"])
+    numeric_version = "%d.%d.%d" % (info["major"], info["minor"], info["patch"])
+    # CI sets the full tag+short-SHA label for manifests. The device VERSION
+    # response remains the protocol-compatible three numeric components.
+    version = os.environ.get("MAIMAI_BUILD_VERSION", numeric_version)
     build_dir = env.subst("$BUILD_DIR")  # noqa: F821
     bin_path = os.path.join(build_dir, "firmware.bin")
 

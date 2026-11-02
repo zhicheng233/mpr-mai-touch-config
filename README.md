@@ -67,6 +67,7 @@ GitHub Actions 会在每次 `push` 和 Pull Request 上编译固件、运行固�
 固件与桌面工具使用独立版本号和标签，互不要求同步：
 
 - **固件 Release**：更新 `firmware/src/version.h` 后推送 `firmware-vX.Y.Z` 标签；Release 附 `firmware.bin` 和 `firmware.json`。
-- **桌面工具 Release**：更新 `software/MaimaiTouchTool/MaimaiTouchTool.csproj` 的 `<Version>` 后推送 `tool-vX.Y.Z` 标签；Release 附 framework-dependent 与 self-contained 两种 Windows x64 ZIP，均包含配套固件。
+- **桌面工具 Release**：推送 `tool-vX.Y.Z` 标签；Release 附 framework-dependent 与 self-contained 两种 Windows x64 ZIP，均包含配套固件。没有产品标签时，CI 才回退到项目文件中的版本号。
 
 Release 描述会自动列出自上一个同类型标签以来的提交标题和作者。固件更新检查只筛选 `firmware-v*`，不会被工具 Release 干扰。
+非 Release 的 CI 构建会以最近可达的同类型标签为基线，并在软件版本及固件清单版本中追加 `+g<短提交哈希>`；仓库尚无对应标签时，回退到项目里的版本号。Release 构建使用标签版本本身。固件板上 VERSION 协议仍报告三段数字版本，哈希作为固件清单的构建元数据，不改变游戏/设备协议。

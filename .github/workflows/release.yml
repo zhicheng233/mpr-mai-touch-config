@@ -28,8 +28,14 @@ jobs:
       - name: Install PlatformIO
         run: python -m pip install --upgrade platformio
 
+      - name: Resolve release firmware version
+        id: firmware_version
+        run: python tools/ci_version.py firmware --mode release --tag "$GITHUB_REF_NAME"
+
       - name: Build firmware
         working-directory: firmware
+        env:
+          MAIMAI_BUILD_VERSION: ${{ steps.firmware_version.outputs.version }}
         run: pio run -e seeed_xiao
 
       - name: Prepare release notes
@@ -78,7 +84,13 @@ jobs:
         run: python -m pip install --upgrade platformio
 
       - name: Build firmware bundled with the tool
+        id: bundled_firmware
+        run: python tools/ci_version.py firmware --mode ci
+
+      - name: Compile bundled firmware
         working-directory: firmware
+        env:
+          MAIMAI_BUILD_VERSION: ${{ steps.bundled_firmware.outputs.version }}
         run: pio run -e seeed_xiao
 
       - name: Set up .NET 9 SDK
@@ -86,16 +98,26 @@ jobs:
         with:
           dotnet-version: 9.0.x
 
+      - name: Resolve release desktop tool version
+        id: tool_version
+        run: python tools/ci_version.py tool --mode release --tag "$env:GITHUB_REF_NAME"
+
       - name: Restore and test
+        env:
+          BUILD_VERSION: ${{ steps.tool_version.outputs.version }}
         run: |
           dotnet restore software/MaimaiTouchTool.sln
-          dotnet test software/MaimaiTouchTool.sln --configuration Release --no-restore
+          dotnet test software/MaimaiTouchTool.sln --configuration Release --no-restore "-p:Version=$env:BUILD_VERSION" "-p:IncludeSourceRevisionInInformationalVersion=false"
 
       - name: Publish framework-dependent single-file tool
-        run: dotnet publish software/MaimaiTouchTool/MaimaiTouchTool.csproj --configuration Release --runtime win-x64 --self-contained false -p:PublishSingleFile=true --output artifacts/tool-framework-dependent
+        env:
+          BUILD_VERSION: ${{ steps.tool_version.outputs.version }}
+        run: dotnet publish software/MaimaiTouchTool/MaimaiTouchTool.csproj --configuration Release --runtime win-x64 --self-contained false "-p:Version=$env:BUILD_VERSION" "-p:IncludeSourceRevisionInInformationalVersion=false" -p:PublishSingleFile=true --output artifacts/tool-framework-dependent
 
       - name: Publish self-contained single-file tool
-        run: dotnet publish software/MaimaiTouchTool/MaimaiTouchTool.csproj --configuration Release --runtime win-x64 --self-contained true -p:PublishSingleFile=true --output artifacts/tool-self-contained
+        env:
+          BUILD_VERSION: ${{ steps.tool_version.outputs.version }}
+        run: dotnet publish software/MaimaiTouchTool/MaimaiTouchTool.csproj --configuration Release --runtime win-x64 --self-contained true "-p:Version=$env:BUILD_VERSION" "-p:IncludeSourceRevisionInInformationalVersion=false" -p:PublishSingleFile=true --output artifacts/tool-self-contained
 
       - name: Verify bundled firmware and create archives
         shell: pwsh

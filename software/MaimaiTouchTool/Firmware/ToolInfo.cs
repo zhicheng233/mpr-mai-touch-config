@@ -9,7 +9,7 @@ namespace MaimaiTouchTool.Firmware;
 /// </summary>
 public static class ToolInfo
 {
-    /// <summary>纯版本号，已去掉 SDK 追加的 +git-sha 后缀。</summary>
+    /// <summary>程序集 informational version；CI 注入的 +g<短哈希> 会显示出来。</summary>
     public static string Version
     {
         get
@@ -18,8 +18,12 @@ public static class ToolInfo
             var info = asm.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
             if (!string.IsNullOrWhiteSpace(info))
             {
-                var plus = info.IndexOf('+');
-                return plus > 0 ? info[..plus] : info;
+                // 普通本地构建可能由 SDK 自动追加完整源码哈希，不把它当产品版本显示。
+                // CI 注入的 tag+短哈希使用 +g 前缀，需要展示给用户。
+                var buildMetadata = info.IndexOf('+');
+                return buildMetadata > 0 && info.AsSpan(buildMetadata + 1).StartsWith("g", StringComparison.Ordinal)
+                    ? info
+                    : buildMetadata > 0 ? info[..buildMetadata] : info;
             }
             return asm.GetName().Version?.ToString(3) ?? "0.0.0";
         }
