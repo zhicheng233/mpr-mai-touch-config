@@ -37,7 +37,7 @@ dotnet build software/MaimaiTouchTool/MaimaiTouchTool.csproj -c Release
 产物：
 
 ```
-software\MaimaiTouchTool\bin\Release\net8.0\MaimaiTouchTool.exe
+software\MaimaiTouchTool\bin\Release\net9.0\MaimaiTouchTool.exe
 ```
 
 建议用绝对路径配置客户端（MCP 客户端的工作目录不一定是你以为的那个）。
@@ -61,7 +61,7 @@ MCP 服务器是 **stdio** 类型：客户端负责启动进程并通过 stdin/s
     "maimai-touch": {
       "type": "local",
       "command": [
-        "F:\\Code\\mpr-mai-touch-config\\software\\MaimaiTouchTool\\bin\\Release\\net8.0\\MaimaiTouchTool.exe",
+        "F:\\Code\\mpr-mai-touch-config\\software\\MaimaiTouchTool\\bin\\Release\\net9.0\\MaimaiTouchTool.exe",
         "--mcp"
       ],
       "enabled": true
@@ -81,7 +81,7 @@ MCP 服务器是 **stdio** 类型：客户端负责启动进程并通过 stdin/s
 {
   "mcpServers": {
     "maimai-touch": {
-      "command": "F:\\Code\\mpr-mai-touch-config\\software\\MaimaiTouchTool\\bin\\Release\\net8.0\\MaimaiTouchTool.exe",
+      "command": "F:\\Code\\mpr-mai-touch-config\\software\\MaimaiTouchTool\\bin\\Release\\net9.0\\MaimaiTouchTool.exe",
       "args": ["--mcp"]
     }
   }
@@ -96,7 +96,7 @@ MCP 服务器是 **stdio** 类型：客户端负责启动进程并通过 stdin/s
 {
   "mcpServers": {
     "maimai-touch": {
-      "command": "F:\\Code\\mpr-mai-touch-config\\software\\MaimaiTouchTool\\bin\\Release\\net8.0\\MaimaiTouchTool.exe",
+      "command": "F:\\Code\\mpr-mai-touch-config\\software\\MaimaiTouchTool\\bin\\Release\\net9.0\\MaimaiTouchTool.exe",
       "args": ["--mcp"]
     }
   }
@@ -121,7 +121,7 @@ JSON 里反斜杠要写成 `\\`。如果客户端不支持直接启动 exe，可
 不想开客户端就想确认服务器能跑，直接在 PowerShell 里喂三条消息：
 
 ```powershell
-$exe = "F:\Code\mpr-mai-touch-config\software\MaimaiTouchTool\bin\Release\net8.0\MaimaiTouchTool.exe"
+$exe = "F:\Code\mpr-mai-touch-config\software\MaimaiTouchTool\bin\Release\net9.0\MaimaiTouchTool.exe"
 $dir = "$env:TEMP\mcp_probe"; New-Item -ItemType Directory -Force $dir | Out-Null
 @'
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"probe","version":"1"}}}

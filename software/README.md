@@ -1,6 +1,6 @@
 # 桌面配置工具 (software)
 
-基于 Avalonia 11 (.NET 8) 的 maimai 触摸控制器桌面配置、测试与调优工具。
+基于 Avalonia 11 (.NET 9) 的 maimai 触摸控制器桌面配置、测试与调优工具。
 
 ---
 
@@ -30,7 +30,7 @@
 
 ## 构建与运行
 
-需安装 [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)。
+需安装 [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0)。
 
 ```bash
 # 运行
@@ -42,4 +42,4 @@ dotnet test
 # 打包发布 (Windows x64 单文件)
 dotnet publish MaimaiTouchTool/MaimaiTouchTool.csproj -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true
 ```
-产物输出至：`MaimaiTouchTool/bin/Release/net8.0/win-x64/publish/MaimaiTouchTool.exe`。
+产物输出至：`MaimaiTouchTool/bin/Release/net9.0/win-x64/publish/MaimaiTouchTool.exe`。

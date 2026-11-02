@@ -277,7 +277,7 @@ public sealed class FirmwareViewModel : NotifyModel
         var shipped = Path.Combine(AppContext.BaseDirectory, "Firmware", "firmware.json");
         if (File.Exists(shipped)) return shipped;
 
-        // 从 bin/Debug/net8.0 往上找仓库根（含 firmware/platformio.ini 的那层）
+        // 从 bin/Debug/net9.0 往上找仓库根（含 firmware/platformio.ini 的那层）
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
         for (var i = 0; i < 8 && dir is not null; i++, dir = dir.Parent)
         {
