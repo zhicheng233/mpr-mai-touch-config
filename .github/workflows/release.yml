@@ -1,0 +1,140 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'firmware-v*'
+      - 'tool-v*'
+
+permissions:
+  contents: write
+
+jobs:
+  firmware-release:
+    name: Publish firmware release
+    if: startsWith(github.ref, 'refs/tags/firmware-v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out full history and tags
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install PlatformIO
+        run: python -m pip install --upgrade platformio
+
+      - name: Build firmware
+        working-directory: firmware
+        run: pio run -e seeed_xiao
+
+      - name: Prepare release notes
+        shell: bash
+        run: |
+          current="${GITHUB_REF_NAME}"
+          previous="$(git tag --sort=-version:refname --list 'firmware-v*' | awk -v current="$current" '$0 == current { found = 1; next } found { print; exit }')"
+          if [ -n "$previous" ]; then
+            range="${previous}..${current}"
+          else
+            range="$current"
+          fi
+          {
+            echo "## Changes since ${previous:-the beginning of the repository}"
+            echo
+            git log "$range" --pretty=format:'- %s — %an <%ae>'
+            echo
+          } > RELEASE_NOTES.md
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Firmware ${{ github.ref_name }}
+          body_path: RELEASE_NOTES.md
+          files: |
+            firmware/.pio/build/seeed_xiao/firmware.bin
+            firmware/.pio/build/seeed_xiao/firmware.json
+          make_latest: true
+
+  tool-release:
+    name: Publish desktop tool release
+    if: startsWith(github.ref, 'refs/tags/tool-v')
+    runs-on: windows-latest
+    steps:
+      - name: Check out full history and tags
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install PlatformIO
+        run: python -m pip install --upgrade platformio
+
+      - name: Build firmware bundled with the tool
+        working-directory: firmware
+        run: pio run -e seeed_xiao
+
+      - name: Set up .NET 9 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Restore and test
+        run: |
+          dotnet restore software/MaimaiTouchTool.sln
+          dotnet test software/MaimaiTouchTool.sln --configuration Release --no-restore
+
+      - name: Publish framework-dependent single-file tool
+        run: dotnet publish software/MaimaiTouchTool/MaimaiTouchTool.csproj --configuration Release --runtime win-x64 --self-contained false -p:PublishSingleFile=true --output artifacts/tool-framework-dependent
+
+      - name: Publish self-contained single-file tool
+        run: dotnet publish software/MaimaiTouchTool/MaimaiTouchTool.csproj --configuration Release --runtime win-x64 --self-contained true -p:PublishSingleFile=true --output artifacts/tool-self-contained
+
+      - name: Verify bundled firmware and create archives
+        shell: pwsh
+        run: |
+          $publishDirs = @('artifacts/tool-framework-dependent', 'artifacts/tool-self-contained')
+          foreach ($dir in $publishDirs) {
+            if (-not (Test-Path "$dir/Firmware/firmware.bin")) {
+              throw "Firmware binary was not included in $dir"
+            }
+            if (-not (Test-Path "$dir/Firmware/firmware.json")) {
+              throw "Firmware manifest was not included in $dir"
+            }
+          }
+          Compress-Archive -Path 'artifacts/tool-framework-dependent/*' -DestinationPath 'artifacts/MaimaiTouchTool-win-x64.zip' -Force
+          Compress-Archive -Path 'artifacts/tool-self-contained/*' -DestinationPath 'artifacts/MaimaiTouchTool-win-x64-selfcontained.zip' -Force
+
+      - name: Prepare release notes
+        shell: bash
+        run: |
+          current="${GITHUB_REF_NAME}"
+          previous="$(git tag --sort=-version:refname --list 'tool-v*' | awk -v current="$current" '$0 == current { found = 1; next } found { print; exit }')"
+          if [ -n "$previous" ]; then
+            range="${previous}..${current}"
+          else
+            range="$current"
+          fi
+          {
+            echo "## Changes since ${previous:-the beginning of the repository}"
+            echo
+            git log "$range" --pretty=format:'- %s — %an <%ae>'
+            echo
+          } > RELEASE_NOTES.md
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Desktop tool ${{ github.ref_name }}
+          body_path: RELEASE_NOTES.md
+          files: |
+            artifacts/MaimaiTouchTool-win-x64.zip
+            artifacts/MaimaiTouchTool-win-x64-selfcontained.zip
+          make_latest: false
