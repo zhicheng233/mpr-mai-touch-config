@@ -69,8 +69,8 @@ public sealed class FirmwareTests
         const string json = """
         {
           "schema": 1,
-          "version": "0.2.0",
-          "versionCode": 512,
+          "version": "0.1.0",
+          "versionCode": 256,
           "protocol": "1.1",
           "board": "seeed_xiao",
           "env": "seeed_xiao",
@@ -82,10 +82,10 @@ public sealed class FirmwareTests
         var manifest = FirmwareManifest.Parse(json);
 
         Assert.NotNull(manifest);
-        Assert.Equal("0.2.0", manifest!.Version);
+        Assert.Equal("0.1.0", manifest!.Version);
         Assert.Equal("1.1", manifest.Protocol);
         Assert.Equal(29532, manifest.Size);
-        Assert.Equal(new FirmwareVersion(0, 2, 0), manifest.Parsed);
+        Assert.Equal(new FirmwareVersion(0, 1, 0), manifest.Parsed);
     }
 
     [Fact]
@@ -123,12 +123,12 @@ public sealed class FirmwareTests
     [Fact]
     public void NeedsUpdateWhenDeviceIsOlderThanTheLocalBuild()
     {
-        using var build = new FakeBuild("0.2.0");
+        using var build = new FakeBuild("0.1.0");
         var model = NewModel(build);
 
         model.DeviceProtocol = "1.1";
         model.HasKeyMappingCapability = true;
-        model.DeviceVersion = new FirmwareVersion(0, 1, 0);
+        model.DeviceVersion = new FirmwareVersion(0, 0, 9);
 
         Assert.Equal(Localizer.Instance["Fw.NeedsUpdate"], model.UpToDateLabel);
         Assert.True(model.NeedsUpdate);
@@ -137,12 +137,12 @@ public sealed class FirmwareTests
     [Fact]
     public void NoUpdateWhenVersionsMatch()
     {
-        using var build = new FakeBuild("0.2.0");
+        using var build = new FakeBuild("0.1.0");
         var model = NewModel(build);
 
         model.DeviceProtocol = "1.1";
         model.HasKeyMappingCapability = true;
-        model.DeviceVersion = new FirmwareVersion(0, 2, 0);
+        model.DeviceVersion = new FirmwareVersion(0, 1, 0);
 
         Assert.False(model.NeedsUpdate);
         Assert.Equal(Localizer.Instance["Fw.UpToDate"], model.UpToDateLabel);
@@ -153,12 +153,12 @@ public sealed class FirmwareTests
     {
         // 协议 1.0 的旧固件：版本号可能和本地一样，但没有 mapping 能力位。
         // 这正是用户碰到的那条"固件早于可配置按键映射"报错的判据。
-        using var build = new FakeBuild("0.2.0");
+        using var build = new FakeBuild("0.1.0");
         var model = NewModel(build);
 
         model.DeviceProtocol = "1.0";
         model.HasKeyMappingCapability = false;
-        model.DeviceVersion = new FirmwareVersion(0, 2, 0);
+        model.DeviceVersion = new FirmwareVersion(0, 1, 0);
 
         Assert.True(model.NeedsUpdate);
     }
@@ -167,7 +167,7 @@ public sealed class FirmwareTests
     public void NotConnectedDoesNotClaimAnUpdateIsAvailable()
     {
         // 没连板子时不能红一片：版本未知 ≠ 需要更新
-        using var build = new FakeBuild("0.2.0");
+        using var build = new FakeBuild("0.1.0");
         var model = NewModel(build);
 
         Assert.False(model.NeedsUpdate);
@@ -177,15 +177,15 @@ public sealed class FirmwareTests
     [Fact]
     public void DeviceSummaryMentionsProtocolAndMappingSupport()
     {
-        using var build = new FakeBuild("0.2.0");
+        using var build = new FakeBuild("0.1.0");
         var model = NewModel(build);
 
-        model.DeviceVersion = new FirmwareVersion(0, 2, 0);
+        model.DeviceVersion = new FirmwareVersion(0, 1, 0);
         model.DeviceProtocol = "1.1";
         model.HasKeyMappingCapability = true;
 
         var summary = model.DeviceSummary;
-        Assert.Contains("0.2.0", summary);
+        Assert.Contains("0.1.0", summary);
         Assert.Contains("1.1", summary);
         Assert.Contains(Localizer.Instance["Fw.MappingYes"], summary);
     }
@@ -195,10 +195,10 @@ public sealed class FirmwareTests
     [Fact]
     public void ReadsTheLocalBuildManifestFromTheFakeBuildDirectory()
     {
-        using var build = new FakeBuild("0.2.0");
+        using var build = new FakeBuild("0.1.0");
         var model = NewModel(build);
 
-        Assert.Equal("0.2.0", model.LocalVersionText);
+        Assert.Equal("0.1.0", model.LocalVersionText);
         Assert.True(model.HasLocalBinary);
         Assert.Equal(Path.Combine(build.Directory, "firmware.bin"), model.LocalBinaryPath);
     }
@@ -221,7 +221,7 @@ public sealed class FirmwareTests
     [Fact]
     public void CannotFlashWithoutAConfiguredPort()
     {
-        using var build = new FakeBuild("0.2.0");
+        using var build = new FakeBuild("0.1.0");
         var model = NewModel(build);
 
         Assert.True(model.HasLocalBinary);
@@ -233,7 +233,7 @@ public sealed class FirmwareTests
     [Fact]
     public void ReportFlashResultSurfacesAMessage()
     {
-        using var build = new FakeBuild("0.2.0");
+        using var build = new FakeBuild("0.1.0");
         var model = NewModel(build);
 
         Assert.False(model.HasFlashStatus);
