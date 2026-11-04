@@ -199,6 +199,8 @@ public sealed class McpToolHost
             ["touchDebounce"] = b.TouchDebounce, ["releaseDebounce"] = b.ReleaseDebounce,
             ["sfi"] = b.Sfi, ["esi"] = b.Esi }).ToArray()),
         ["electrodeOffsets"] = new JsonArray(config.ElectrodeOffsets.Select(o => (JsonNode)o).ToArray()),
+        ["compensationMode"] = (int)config.CompensationMode,
+        ["compensationKeys"] = new JsonArray(Enumerable.Range(0, 34).Where(k => (config.CompensationKeys & (1UL << k)) != 0).Select(k => (JsonNode)KeyMapping.KeyLabels[k]).ToArray()),
         // keyMap 按键序（A1…E8）给，同时带上 key 名和它在 48 通道里的下标，
         // 这样模型不用自己算 board*12+channel 就能把遥测通道对上键。
         ["keyMap"] = new JsonArray(config.Mapping.Select((packed, index) => (JsonNode)new JsonObject {

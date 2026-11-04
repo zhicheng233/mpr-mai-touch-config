@@ -18,7 +18,7 @@ public sealed class ProtocolTests
     {
         var frame = new ProtocolFrame((byte)ProtocolConstants.FrameType.SetConfig, 42, ConfigBlob.Defaults().Encode());
         var encoded = frame.Encode();
-        Assert.Equal(103, encoded.Length);
+        Assert.Equal(109, encoded.Length);
         var decoded = ProtocolFrame.Decode(encoded);
         Assert.Equal(frame.Type, decoded.Type); Assert.Equal(frame.Sequence, decoded.Sequence); Assert.Equal(frame.Payload, decoded.Payload);
         Assert.Throws<ArgumentOutOfRangeException>(() => new ProtocolFrame(1, 1, new byte[257]).Encode());
@@ -37,10 +37,10 @@ public sealed class ProtocolTests
     }
 
     [Fact]
-    public void ConfigBlobIsExactly93BytesAndRoundTrips()
+    public void ConfigBlobIsExactly99BytesAndRoundTrips()
     {
         var config = ConfigBlob.Defaults();
-        Assert.Equal(93, config.Encode().Length);
+        Assert.Equal(99, config.Encode().Length);
         var decoded = ConfigBlob.Decode(config.Encode());
         Assert.Equal(config.Boards, decoded.Boards); Assert.Equal(config.ElectrodeOffsets, decoded.ElectrodeOffsets);
         Assert.Equal(KeyMapping.Default, decoded.Mapping);
@@ -295,7 +295,7 @@ public sealed class WorkflowTests
         var applied = await workflow.ApplyAsync(ConfigBlob.Defaults());
         await workflow.SaveAsync();
         Assert.Equal(new byte[] { 0x11, 0x13, 0x10, 0x12 }, client.Types);
-        Assert.Equal(93, client.PayloadLengths[0]);
+        Assert.Equal(99, client.PayloadLengths[0]);
         Assert.Equal(ConfigBlob.Defaults().Encode(), applied.Encode());
     }
 

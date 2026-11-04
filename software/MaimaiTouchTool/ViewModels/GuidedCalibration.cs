@@ -12,7 +12,8 @@ public enum GuidedKeyStatus
     /// <summary>按下深度不足：无论怎么设阈值都无法同时既不误触又按得动。</summary>
     InsufficientDepth,
     /// <summary>算出的阈值超出现有配置能表达的范围（&gt;509 或与板级基准差 &gt;127）。</summary>
-    Overflow
+    Overflow,
+    UnstableIdle
 }
 
 /// <summary>工具侧逐键采集到的原始测量（不含算法决策）。</summary>
@@ -26,7 +27,28 @@ public sealed record GuidedKeyInput(
     double HoldMs,
     double RiseMs,
     double FallMs,
-    bool Measured);
+    bool Measured)
+{
+    public double IdleUpper { get; init; }
+    public double IdleMedian { get; init; }
+    public double CrossTalk { get; init; }
+    public bool IdleTouched { get; init; }
+    public bool IdleUnstable { get; init; }
+    public bool IdleTransient { get; init; }
+    public double IdleDrift { get; init; }
+    public bool TimedOut { get; init; }
+    public bool UnexpectedTouch { get; init; }
+    public bool ReleaseStuck { get; init; }
+    public bool RawRecoveryUsed { get; init; }
+    public double ReleaseUpper { get; init; }
+    public double? FilteredNoiseSpan { get; init; }
+    public bool UsesCenterProfile => GuidedCalibrationAlgorithm.IsCenterKey(KeyIndex) &&
+        FilteredNoiseSpan is { } noise && double.IsFinite(noise) && noise >= 0;
+    public ulong UnexpectedTouchBits { get; init; }
+    public int MinimumThreshold { get; init; } = 1;
+    public int MaximumThreshold { get; init; } = 508;
+    public IReadOnlyList<GuidedPressSample> Samples { get; init; } = [];
+}
 
 /// <summary>逐键的算法结论，供预览表展示。</summary>
 public sealed record GuidedKeyOutcome(
@@ -39,7 +61,27 @@ public sealed record GuidedKeyOutcome(
     int OldOffset,
     int NewOffset,
     int KeyThreshold,
-    GuidedKeyStatus Status);
+    GuidedKeyStatus Status)
+{
+    public int SafeLower { get; init; }
+    public int SafeUpper { get; init; }
+    public int SampleCount { get; init; }
+    public bool HadStuckRelease { get; init; }
+    public bool IdleTouched { get; init; }
+    public bool IdleTransient { get; init; }
+    public double IdleDrift { get; init; }
+    public GuidedSafetyLimits? SafetyLimits { get; init; }
+    public double? CenterFilteredNoiseSpan { get; init; }
+}
+
+/// <summary>Independent, quantized constraints so a failed interval is explainable.</summary>
+public sealed record GuidedSafetyLimits(int IdleLower, int CrossTalkLower, int ReleaseLower,
+    int VerificationLower, int PressUpper, int VerificationUpper)
+{
+    public int Lower => Math.Max(GuidedCalibrationAlgorithm.MinimumSafeThreshold,
+        Math.Max(Math.Max(IdleLower, CrossTalkLower), Math.Max(ReleaseLower, VerificationLower)));
+    public int Upper => Math.Min(PressUpper, VerificationUpper);
+}
 
 /// <summary>板级（含 baseThreshold / sensOffset / DT / DR）的旧值→新值。</summary>
 public sealed record GuidedBoardOutcome(
@@ -67,20 +109,29 @@ public sealed record GuidedCalibrationResult(
 {
     public int MeasuredCount => Keys.Count(key => key.Status == GuidedKeyStatus.Measured);
     public int SkippedCount => Keys.Count(key => key.Status == GuidedKeyStatus.Skipped);
-    public int FailedCount => Keys.Count(key => key.Status is GuidedKeyStatus.Timeout or GuidedKeyStatus.InsufficientDepth or GuidedKeyStatus.Overflow);
+    public int FailedCount => Keys.Count(key => key.Status != GuidedKeyStatus.Measured);
 }
 
 /// <summary>
-/// 引导式强力自动调整的纯算法核心：给定逐键测量 + 当前配置 + 触发比例，
-/// 算出新的 electrodeOffset 与板级 baseThreshold/sensOffset/DT/DR。无副作用，便于单测。
+/// Pure board-wise constrained solver. Targets are absolute, quantized thresholds within each
+/// key's measured safety interval. DT/DR/SFI/ESI and the firmware hardware settings are unchanged.
 /// </summary>
 public static class GuidedCalibrationAlgorithm
 {
     public const double DefaultTriggerRatio = 0.5;
-    /// <summary>噪声余量倍数：阈值至少是静止噪声跨度的多少倍，避免误触。</summary>
+    /// <summary>Noise margin, in the same units as the streamed baseline-filtered signal.</summary>
     public const double NoiseFactor = 2.0;
-    /// <summary>芯片阈值分辨率为 4（ceil(touchDelta/4)），电极偏移按此对齐。</summary>
+    /// <summary>C1/C2 use one-sided filtered noise; absolute idle/residual/cross-talk bounds still apply.</summary>
+    public const double CenterNoiseFactor = 0.5;
+    public static bool IsCenterKey(int keyIndex) => keyIndex is 16 or 17;
+    /// <summary>Match the current firmware conversion ceil(touchDelta/4); quantize ABSOLUTE targets.</summary>
     public const int StepQuantum = 4;
+    public const int ReleaseHysteresis = 4;
+    public const int MinimumSafeThreshold = 8;
+
+    /// <summary>Mirror firmware clamp + ceil conversion, including its fixed release hysteresis.</summary>
+    public static int HardwareReleaseThreshold(int threshold) =>
+        (Math.Max(0, Math.Clamp(threshold, 1, 1023) - ReleaseHysteresis) + StepQuantum - 1) / StepQuantum;
     /// <summary>baseThreshold(255) + sensOffset(127) + electrodeOffset(127) 的可表达上限。</summary>
     public const int MaxRepresentableThreshold = 255 + 127 + 127;
     public const int MinElectrodeOffset = -127;
@@ -93,6 +144,24 @@ public static class GuidedCalibrationAlgorithm
     public const double MinTriggerRatio = 0.2;
     public const double MaxTriggerRatio = 0.9;
 
+    public static GuidedSafetyLimits SafetyLimitsFor(GuidedKeyInput input)
+    {
+        // The usual difference span includes baseline register steps. On weak center electrodes,
+        // do not add that whole span twice on top of the already measured absolute idle envelope.
+        // Only use this profile when separate filtered-noise evidence was actually collected.
+        var margin = input.UsesCenterProfile
+            ? Math.Max(1, input.FilteredNoiseSpan!.Value * CenterNoiseFactor)
+            : Math.Max(1, input.NoiseSpan * NoiseFactor);
+        var pressMargin = input.UsesCenterProfile ? margin : Math.Max(1, input.NoiseSpan);
+        return new(
+            QuantizeUp(Math.Max(0, input.IdleUpper) + ReleaseHysteresis + margin + 1),
+            QuantizeUp(input.CrossTalk + margin + 1),
+            QuantizeUp(Math.Max(0, input.ReleaseUpper) + ReleaseHysteresis + margin + 1),
+            QuantizeUp(input.MinimumThreshold),
+            (int)Math.Floor((input.PressDepth - pressMargin) / StepQuantum) * StepQuantum,
+            (int)Math.Floor(input.MaximumThreshold / (double)StepQuantum) * StepQuantum);
+    }
+
     public static GuidedCalibrationResult Compute(
         IReadOnlyList<GuidedKeyInput> inputs,
         ConfigBlob current,
@@ -102,81 +171,72 @@ public static class GuidedCalibrationAlgorithm
         ArgumentNullException.ThrowIfNull(current);
         var ratio = Math.Clamp(triggerRatio, MinTriggerRatio, MaxTriggerRatio);
 
-        // 逐键目标阈值：至少高过噪声底线，理想是"按到 ratio 深度即触发"。
-        var keyThresholds = new int[inputs.Count];
-        var keyStatus = new GuidedKeyStatus[inputs.Count];
+        if (inputs.Any(i => i.KeyIndex < 0 || i.KeyIndex >= 34 || i.Board < 0 || i.Board >= current.Boards.Length ||
+                i.Channel != KeyMapping.ChannelIndexOf(current.Mapping[i.KeyIndex]) || i.Board != i.Channel / 12))
+            throw new ArgumentException("Measurements do not match the configuration mapping.", nameof(inputs));
+        if (inputs.Select(i => i.KeyIndex).Distinct().Count() != inputs.Count)
+            throw new ArgumentException("Duplicate calibration measurements.", nameof(inputs));
+        var lower = new int[inputs.Count];
+        var upper = new int[inputs.Count];
+        var ideal = new double[inputs.Count];
+        var thresholds = new int[inputs.Count];
+        var statuses = new GuidedKeyStatus[inputs.Count];
+        var limits = new GuidedSafetyLimits[inputs.Count];
         for (var i = 0; i < inputs.Count; i++)
         {
             var input = inputs[i];
-            if (!input.Measured)
-            {
-                keyThresholds[i] = 0;
-                keyStatus[i] = GuidedKeyStatus.Skipped;
-                continue;
-            }
-            var noiseFloor = input.NoiseSpan * NoiseFactor;
-            var ideal = input.PressDepth * ratio;
-            var target = (int)Math.Ceiling(Math.Max(noiseFloor, ideal));
-            keyThresholds[i] = target;
-            // 按下深度不足以与噪声区分：任何阈值都无法既防误触又按得动。
-            keyStatus[i] = target >= input.PressDepth
-                ? GuidedKeyStatus.InsufficientDepth
-                : GuidedKeyStatus.Measured;
+            // Release must clear both idle noise and the measured post-touch residual, not merely
+            // be nonzero. A negative idle bias must never permit a zero hardware release threshold.
+            limits[i] = SafetyLimitsFor(input);
+            lower[i] = limits[i].Lower;
+            upper[i] = limits[i].Upper;
+            ideal[i] = Math.Clamp(input.IdleMedian + (input.PressDepth - input.IdleMedian) * ratio,
+                lower[i], Math.Max(lower[i], upper[i]));
+            statuses[i] = input.TimedOut ? GuidedKeyStatus.Timeout : !input.Measured ? GuidedKeyStatus.Skipped
+                : ((input.IdleTouched || input.ReleaseStuck) && !input.RawRecoveryUsed) || input.IdleUnstable ? GuidedKeyStatus.UnstableIdle
+                : lower[i] > upper[i] ? GuidedKeyStatus.InsufficientDepth : GuidedKeyStatus.Measured;
         }
 
-        // 板级公共基准 = 该板所有"可用键"目标阈值的中位数（对异常键鲁棒）。只升不降在这里不适用：
-        // 这是"重新平衡"，不是"安全底线累加"，因此允许下调。
-        var boardCount = current.Boards.Length;
-        var boardBase = new double[boardCount];
-        var boardMeasured = new int[boardCount];
-        for (var board = 0; board < boardCount; board++)
-        {
-            var samples = new List<int>();
-            for (var i = 0; i < inputs.Count; i++)
-                if (inputs[i].Board == board && keyStatus[i] == GuidedKeyStatus.Measured)
-                    samples.Add(keyThresholds[i]);
-            boardBase[board] = samples.Count > 0 ? Median(samples) : 0;
-            boardMeasured[board] = samples.Count;
-        }
-
-        // 板级 baseThreshold/sensOffset 拆解：优先用 baseThreshold 装下基准（上限 255），
-        // 溢出部分交给 sensOffset（±127）。必须先把板级算完，因为逐键偏移要相对
-        // "实际生效的板级基准"（baseThreshold + sensOffset）计算；否则两者被 clamp 后
-        // 每个键的最终阈值会整体偏移，与所测深度对不上。
-        var boardOutcomes = new List<GuidedBoardOutcome>(boardCount);
-        var effectiveBase = new int[boardCount];
-        for (var board = 0; board < boardCount; board++)
+        var boardOutcomes = new List<GuidedBoardOutcome>();
+        var effectiveBase = new int[current.Boards.Length];
+        for (var board = 0; board < current.Boards.Length; board++)
         {
             var old = current.Boards[board];
-            var newBase = (int)old.BaseThreshold;
-            var newSens = (int)old.SensOffset;
-            var newTouchDt = (int)old.TouchDebounce;
-            var newReleaseDr = (int)old.ReleaseDebounce;
-
-            if (boardMeasured[board] > 0)
+            var indices = Enumerable.Range(0, inputs.Count).Where(i => inputs[i].Board == board && statuses[i] == GuidedKeyStatus.Measured).ToArray();
+            var mappedCount = current.Mapping.Count(p => KeyMapping.BoardOf(p) == board);
+            var oldBase = old.BaseThreshold + old.SensOffset;
+            var chosenBase = oldBase;
+            // Rebalance only complete boards. A subset must not move unmeasured/failed keys.
+            var complete = indices.Length > 0 && indices.Length == mappedCount;
+            var bases = complete ? Enumerable.Range(1 + MinSensOffset, 255 + MaxSensOffset - (1 + MinSensOffset) + 1) : [oldBase];
+            var bestCost = double.PositiveInfinity;
+            var median = GuidedStatistics.Quantile(indices.Select(i => ideal[i]), 0.5);
+            foreach (var candidateBase in bases)
             {
-                var baseRounded = (int)Math.Round(boardBase[board]);
-                newBase = Math.Clamp(baseRounded, 0, MaxBaseThreshold);
-                newSens = Math.Clamp(baseRounded - newBase, MinSensOffset, MaxSensOffset);
-
-                // DT/DR：由该板所有已测键的上升/回落耗时中位数推断（±1 档，仅供参考）。
-                var rises = new List<double>();
-                var falls = new List<double>();
-                for (var i = 0; i < inputs.Count; i++)
+                var cost = 0.01 * Math.Pow(candidateBase - median, 2);
+                foreach (var i in indices)
                 {
-                    if (inputs[i].Board != board || keyStatus[i] != GuidedKeyStatus.Measured) continue;
-                    rises.Add(inputs[i].RiseMs);
-                    falls.Add(inputs[i].FallMs);
+                    var lo = Math.Max(lower[i], QuantizeUp(candidateBase + MinElectrodeOffset));
+                    var hi = Math.Min(upper[i], (int)Math.Floor((candidateBase + MaxElectrodeOffset) / 4.0) * 4);
+                    if (lo > hi) { cost = double.PositiveInfinity; break; }
+                    var target = Math.Clamp(RoundToQuantum((int)Math.Round(ideal[i])), lo, hi);
+                    cost += Math.Pow(target - ideal[i], 2);
                 }
-                if (rises.Count > 0) newTouchDt = SuggestDebounce(Median(rises), 25, 50, 100, 200);
-                if (falls.Count > 0) newReleaseDr = SuggestDebounce(Median(falls), 40, 80, 160, 320);
+                if (cost < bestCost) { bestCost = cost; chosenBase = candidateBase; }
             }
-            effectiveBase[board] = newBase + newSens;
-
-            boardOutcomes.Add(new GuidedBoardOutcome(board + 1,
-                old.BaseThreshold, newBase, old.SensOffset, newSens,
-                old.TouchDebounce, newTouchDt, old.ReleaseDebounce, newReleaseDr,
-                boardMeasured[board]));
+            effectiveBase[board] = chosenBase;
+            foreach (var i in indices)
+            {
+                var lo = Math.Max(lower[i], QuantizeUp(chosenBase + MinElectrodeOffset));
+                var hi = Math.Min(upper[i], (int)Math.Floor((chosenBase + MaxElectrodeOffset) / 4.0) * 4);
+                if (lo > hi || (complete && double.IsPositiveInfinity(bestCost))) statuses[i] = GuidedKeyStatus.Overflow;
+                else thresholds[i] = Math.Clamp(RoundToQuantum((int)Math.Round(ideal[i])), lo, hi);
+            }
+            var newBase = chosenBase == oldBase ? old.BaseThreshold : Math.Clamp(chosenBase, 1, 255);
+            var newSens = chosenBase == oldBase ? old.SensOffset : chosenBase - newBase;
+            boardOutcomes.Add(new(board + 1, old.BaseThreshold, newBase, old.SensOffset, newSens,
+                old.TouchDebounce, old.TouchDebounce, old.ReleaseDebounce, old.ReleaseDebounce,
+                indices.Count(i => statuses[i] == GuidedKeyStatus.Measured)));
         }
 
         var keyOutcomes = new List<GuidedKeyOutcome>(inputs.Count);
@@ -184,33 +244,31 @@ public static class GuidedCalibrationAlgorithm
         {
             var input = inputs[i];
             var oldOffset = KeyOffsetFor(current, input.KeyIndex);
-            if (keyStatus[i] != GuidedKeyStatus.Measured)
-            {
-                // 未测到：保留原偏移，不参与板级基准。
-                keyOutcomes.Add(new GuidedKeyOutcome(input.KeyIndex, input.Label, input.Channel, input.Board,
-                    input.PressDepth, input.NoiseSpan, oldOffset, oldOffset, keyThresholds[i], keyStatus[i]));
-                continue;
-            }
-
-            var relative = keyThresholds[i] - effectiveBase[input.Board];
-            var rounded = RoundToQuantum(relative);
-            var status = GuidedKeyStatus.Measured;
-            if (keyThresholds[i] > MaxRepresentableThreshold ||
-                rounded > MaxElectrodeOffset || rounded < MinElectrodeOffset)
-            {
-                status = GuidedKeyStatus.Overflow;
-            }
-            var newOffset = status == GuidedKeyStatus.Overflow
-                ? oldOffset
-                : Math.Clamp(rounded, MinElectrodeOffset, MaxElectrodeOffset);
-            keyOutcomes.Add(new GuidedKeyOutcome(input.KeyIndex, input.Label, input.Channel, input.Board,
-                input.PressDepth, input.NoiseSpan, oldOffset, newOffset, keyThresholds[i], status));
+            var measured = statuses[i] == GuidedKeyStatus.Measured;
+            keyOutcomes.Add(new(input.KeyIndex, input.Label, input.Channel, input.Board,
+                input.PressDepth, input.NoiseSpan, oldOffset,
+                measured ? thresholds[i] - effectiveBase[input.Board] : oldOffset,
+                measured ? thresholds[i] : Math.Max(1, current.Boards[input.Board].BaseThreshold + current.Boards[input.Board].SensOffset + oldOffset), statuses[i])
+            { SafeLower = lower[i], SafeUpper = upper[i], SampleCount = input.Samples.Count,
+             HadStuckRelease = input.IdleTouched || input.ReleaseStuck,
+                IdleTouched = input.IdleTouched, IdleTransient = input.IdleTransient, IdleDrift = input.IdleDrift,
+                SafetyLimits = limits[i],
+                CenterFilteredNoiseSpan = input.UsesCenterProfile ? input.FilteredNoiseSpan : null });
         }
-
-        var hasWarning = keyOutcomes.Any(key => key.Status is GuidedKeyStatus.Timeout or GuidedKeyStatus.InsufficientDepth or GuidedKeyStatus.Overflow)
-                         || boardOutcomes.Any(board => board.MeasuredKeys == 0);
-        return new GuidedCalibrationResult(keyOutcomes, boardOutcomes, ratio, hasWarning);
+        return new(keyOutcomes, boardOutcomes, ratio, keyOutcomes.Any(k => k.Status != GuidedKeyStatus.Measured));
     }
+
+    private static int QuantizeUp(double value) => (int)Math.Ceiling(value / StepQuantum) * StepQuantum;
+
+    /// <summary>Feedback constrains the NEXT measurement round, never silently changes an active trial.</summary>
+    public static GuidedKeyInput Refine(GuidedKeyInput input, int triedThreshold, bool missedTouch, bool falseTouch,
+        bool stuckRelease = false, double releaseUpper = 0) => input with
+    {
+        MinimumThreshold = falseTouch || stuckRelease ? Math.Max(input.MinimumThreshold, triedThreshold + StepQuantum) : input.MinimumThreshold,
+        // A stuck bit is not evidence that the touch threshold was too high.
+        MaximumThreshold = missedTouch && !stuckRelease ? Math.Min(input.MaximumThreshold, triedThreshold - StepQuantum) : input.MaximumThreshold,
+        ReleaseUpper = Math.Max(input.ReleaseUpper, releaseUpper)
+    };
 
     /// <summary>把实际配置写回用的新 ConfigBlob 由结果生成（仅含被采纳的项）。</summary>
     public static ConfigBlob Apply(GuidedCalibrationResult result, ConfigBlob current, bool applyThresholds = true, bool applyDebounce = true)
@@ -234,57 +292,42 @@ public static class GuidedCalibrationAlgorithm
         ArgumentNullException.ThrowIfNull(adoptKey);
         ArgumentNullException.ThrowIfNull(adoptBoard);
         var offsets = (sbyte[])current.ElectrodeOffsets.Clone();
-        foreach (var key in result.Keys)
-            if (key.Status == GuidedKeyStatus.Measured && adoptKey(key) && key.KeyIndex >= 0 && key.KeyIndex < offsets.Length)
-                offsets[key.KeyIndex] = (sbyte)Math.Clamp(key.NewOffset, MinElectrodeOffset, MaxElectrodeOffset);
-
         var boards = new BoardConfig[current.Boards.Length];
         for (var board = 0; board < current.Boards.Length; board++)
         {
             var source = current.Boards[board];
             var outcome = result.Boards.FirstOrDefault(item => item.BoardIndex == board + 1);
             var take = applyThresholds && outcome is not null && outcome.MeasuredKeys > 0 && adoptBoard(outcome);
-            var takeDebounce = applyDebounce && outcome is not null && outcome.MeasuredKeys > 0 && adoptBoard(outcome);
-            var baseThreshold = take ? (byte)Math.Clamp(outcome!.NewBaseThreshold, 0, MaxBaseThreshold) : source.BaseThreshold;
+            // Timing cannot be inferred reliably from the ~33 Hz debug stream. Preserve DT/DR.
+            var baseThreshold = take ? (byte)Math.Clamp(outcome!.NewBaseThreshold, 1, MaxBaseThreshold) : source.BaseThreshold;
             var sensOffset = take ? (sbyte)Math.Clamp(outcome!.NewSensOffset, MinSensOffset, MaxSensOffset) : source.SensOffset;
-            var touchDebounce = takeDebounce ? (byte)Math.Clamp(outcome!.NewTouchDebounce, 0, MaxDebounce) : source.TouchDebounce;
-            var releaseDebounce = takeDebounce ? (byte)Math.Clamp(outcome!.NewReleaseDebounce, 0, MaxDebounce) : source.ReleaseDebounce;
-            boards[board] = source with { BaseThreshold = baseThreshold, SensOffset = sensOffset, TouchDebounce = touchDebounce, ReleaseDebounce = releaseDebounce };
+            boards[board] = source with { BaseThreshold = baseThreshold, SensOffset = sensOffset };
         }
-        return new ConfigBlob(boards, offsets, KeyMapping.Clone(current.Mapping));
+        // Resolve absolute targets against the ACTUALLY adopted board base. Also compensate
+        // unadopted keys if a board base moves; preserving an offset alone does not preserve sensitivity.
+        if (applyThresholds)
+            for (var keyIndex = 0; keyIndex < offsets.Length; keyIndex++)
+            {
+                var board = KeyMapping.BoardOf(current.Mapping[keyIndex]);
+                var outcome = result.Keys.FirstOrDefault(k => k.KeyIndex == keyIndex);
+                var selected = outcome is not null && outcome.Status == GuidedKeyStatus.Measured && adoptKey(outcome);
+                var source = current.Boards[board];
+                var target = selected ? outcome!.KeyThreshold : source.BaseThreshold + source.SensOffset + current.ElectrodeOffsets[keyIndex];
+                if (selected && (target < MinimumSafeThreshold || HardwareReleaseThreshold(target) == 0))
+                    throw new InvalidOperationException(Localizer.Instance["Guided.UnsafeRelease"]);
+                var relative = target - boards[board].BaseThreshold - boards[board].SensOffset;
+                if (relative is < MinElectrodeOffset or > MaxElectrodeOffset)
+                    throw new InvalidOperationException(Localizer.Instance["Guided.SelectionRange"]);
+                offsets[keyIndex] = (sbyte)relative;
+            }
+        return new ConfigBlob(boards, offsets, KeyMapping.Clone(current.Mapping), current.CompensationMode, current.CompensationKeys);
     }
 
-    /// <summary>把相对偏移对齐到芯片分辨率（4）的最近倍数。</summary>
+    /// <summary>Round an absolute target to the firmware's four-count conversion quantum.</summary>
     public static int RoundToQuantum(int value)
     {
         var quotient = (int)Math.Round(value / (double)StepQuantum, MidpointRounding.AwayFromZero);
         return quotient * StepQuantum;
-    }
-
-    /// <summary>由耗时中位数推断去抖档位（0..7）。阈值从紧到松逐级判断。</summary>
-    private static int SuggestDebounce(double medianMs, double dt0, double dt1, double dt2, double dt3)
-    {
-        if (medianMs <= dt0) return 0;
-        if (medianMs <= dt1) return 1;
-        if (medianMs <= dt2) return 2;
-        if (medianMs <= dt3) return 3;
-        return 4;
-    }
-
-    private static double Median(List<double> values)
-    {
-        var sorted = values.OrderBy(value => value).ToArray();
-        if (sorted.Length == 0) return 0;
-        var middle = sorted.Length / 2;
-        return sorted.Length % 2 == 1 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2.0;
-    }
-
-    private static double Median(List<int> values)
-    {
-        var sorted = values.OrderBy(value => value).ToArray();
-        if (sorted.Length == 0) return 0;
-        var middle = sorted.Length / 2;
-        return sorted.Length % 2 == 1 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2.0;
     }
 
     private static int KeyOffsetFor(ConfigBlob config, int keyIndex) =>
@@ -322,11 +365,12 @@ public sealed class GuidedBoardPreview : NotifyModel
 public sealed class GuidedKeyPreview : NotifyModel
 {
     private bool adopt = true;
+    public string? VerificationReason { get; set; }
     public GuidedKeyPreview(GuidedKeyOutcome outcome)
     {
         Outcome = outcome;
         if (outcome.Status != GuidedKeyStatus.Measured) adopt = false;
-        Localizer.Instance.LanguageChanged += (_, _) => { OnPropertyChanged(nameof(Detail)); OnPropertyChanged(nameof(StatusLabel)); };
+        Localizer.Instance.LanguageChanged += (_, _) => { OnPropertyChanged(nameof(Detail)); OnPropertyChanged(nameof(SafetyDetail)); OnPropertyChanged(nameof(StatusLabel)); };
     }
     public GuidedKeyOutcome Outcome { get; }
     public bool Adopt
@@ -336,14 +380,24 @@ public sealed class GuidedKeyPreview : NotifyModel
     }
     public string Label => Outcome.Label;
     public string DepthLabel => Outcome.PressDepth > 0 ? $"{Outcome.PressDepth:0} / {Outcome.NoiseSpan:0}" : "—";
-    public string Detail => string.Format(Localizer.Instance["Guided.KeyDetail"], Outcome.OldOffset, Outcome.NewOffset, Outcome.KeyThreshold);
-    public string StatusLabel => Outcome.Status switch
+    public string Detail => string.Format(Localizer.Instance["Guided.KeyDetail"], Outcome.OldOffset, Outcome.NewOffset, Outcome.KeyThreshold)
+        + " · " + string.Format(Localizer.Instance["Guided.SafeRange"], Outcome.SafeLower, Outcome.SafeUpper, Outcome.SampleCount)
+        + " · " + string.Format(Localizer.Instance["Guided.IdleDriftDetail"], Outcome.IdleDrift)
+        + (Outcome.IdleTransient ? " · " + Localizer.Instance["Guided.TransientWarning"] : "")
+         + (Outcome.HadStuckRelease ? " · " + Localizer.Instance["Guided.RecoveredStuck"] : "");
+    public string SafetyDetail => (Outcome.CenterFilteredNoiseSpan is { } noise
+        ? string.Format(Localizer.Instance["Guided.CenterProfileDetail"], noise, Outcome.NoiseSpan) + " · " : "")
+        + (Outcome.SafetyLimits is not { } limits ? "" :
+            string.Format(Localizer.Instance["Guided.SafetyLimitsDetail"], limits.IdleLower, limits.CrossTalkLower,
+                limits.ReleaseLower, limits.VerificationLower, limits.PressUpper, limits.VerificationUpper));
+    public string StatusLabel => VerificationReason is not null ? Localizer.Instance[VerificationReason] : Outcome.Status switch
     {
         GuidedKeyStatus.Measured => Localizer.Instance["Guided.StatusMeasured"],
         GuidedKeyStatus.Skipped => Localizer.Instance["Guided.StatusSkipped"],
         GuidedKeyStatus.Timeout => Localizer.Instance["Guided.StatusTimeout"],
         GuidedKeyStatus.InsufficientDepth => Localizer.Instance["Guided.StatusInsufficient"],
         GuidedKeyStatus.Overflow => Localizer.Instance["Guided.StatusOverflow"],
+        GuidedKeyStatus.UnstableIdle => Localizer.Instance[Outcome.IdleTouched ? "Guided.StatusIdleHardware" : "Guided.StatusIdleDrift"],
         _ => string.Empty
     };
 }

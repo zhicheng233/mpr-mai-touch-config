@@ -53,6 +53,8 @@ public sealed class ElectrodeEditorModel : NotifyModel
     private int offset;
     private byte mprId;
     private byte portId;
+    private bool compensationSelected;
+    public bool CompensationSelected { get => compensationSelected; set { if (compensationSelected == value) return; compensationSelected = value; OnPropertyChanged(); } }
     public ElectrodeEditorModel(int index, string label, int value, byte mprId = 0, byte portId = 0, Func<int>? stepProvider = null)
     {
         Index = index;
@@ -306,6 +308,32 @@ public sealed class ElectrodeZoneModel : NotifyModel
 
 public sealed class ConfigurationEditorModel : NotifyModel
 {
+    private int compensationMode;
+    private bool supportsCompensation;
+    public int CompensationMode
+    {
+        get => compensationMode;
+        set
+        {
+            var mode = Math.Clamp(value, 0, 2);
+            if (compensationMode == mode) return;
+            compensationMode = mode;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(ExperimentalFeaturesEnabled));
+            OnPropertyChanged(nameof(CompensationBehaviorIndex));
+        }
+    }
+    public bool ExperimentalFeaturesEnabled
+    {
+        get => CompensationMode != 0;
+        set { if (value != ExperimentalFeaturesEnabled) CompensationMode = value ? 1 : 0; }
+    }
+    public int CompensationBehaviorIndex
+    {
+        get => Math.Max(0, CompensationMode - 1);
+        set { if (ExperimentalFeaturesEnabled && value is >= 0 and <= 1) CompensationMode = value + 1; }
+    }
+    public bool SupportsCompensation { get => supportsCompensation; set { supportsCompensation = value; OnPropertyChanged(); } }
     public static readonly string[] Labels = KeyMapping.KeyLabels;
 
     public ConfigurationEditorModel(ConfigBlob config) { Update(config); }
@@ -334,7 +362,8 @@ public sealed class ConfigurationEditorModel : NotifyModel
         Step = AvailableSteps[index];
     }
     public void ResetAllElectrodes() { foreach (var electrode in Electrodes) electrode.Reset(); }
-    public ConfigBlob ToConfig() => new(Boards.Select(x => x.ToConfig()).ToArray(), Electrodes.Select(x => (sbyte)x.Offset).ToArray(), KeyMappings.Select(x => x.Packed).ToArray());
+    public ConfigBlob ToConfig() => new(Boards.Select(x => x.ToConfig()).ToArray(), Electrodes.Select(x => (sbyte)x.Offset).ToArray(), KeyMappings.Select(x => x.Packed).ToArray(),
+        (byte)CompensationMode, Electrodes.Aggregate(0UL, (bits, key) => key.CompensationSelected ? bits | (1UL << key.Index) : bits));
 
     /// <summary>把映射恢复为出厂默认（与参考固件 touchmap::Keys 一致），并把四块板的地址复原。</summary>
     public void RestoreDefaultMapping()
@@ -477,6 +506,7 @@ public sealed class ConfigurationEditorModel : NotifyModel
 
     public void Update(ConfigBlob config)
     {
+        CompensationMode = config.CompensationMode;
         Boards.Clear();
         for (var i = 0; i < config.Boards.Length; i++) Boards.Add(new BoardEditorModel(i + 1, config.Boards[i]));
         KeyMappings.Clear();
@@ -492,6 +522,7 @@ public sealed class ConfigurationEditorModel : NotifyModel
             var packed = i < mapping.Length ? mapping[i] : (byte)0;
             Electrodes.Add(new ElectrodeEditorModel(i, Labels[i], config.ElectrodeOffsets[i],
                 (byte)KeyMapping.BoardOf(packed), (byte)KeyMapping.ChannelOf(packed), () => Step));
+            Electrodes[^1].CompensationSelected = (config.CompensationKeys & (1UL << i)) != 0;
         }
         Zones.Clear();
         Zones.Add(new ElectrodeZoneModel("A", "Config.Zone.A", Electrodes.Take(8).ToList(), () => Step));

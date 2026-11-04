@@ -3,31 +3,40 @@ using System.Buffers.Binary;
 namespace MaimaiTouchTool.Protocol;
 
 public sealed record BoardConfig(byte BaseThreshold = 20, sbyte SensOffset = 0, byte TouchDebounce = 1, byte ReleaseDebounce = 1, byte Sfi = 2, byte Esi = 0);
-public sealed record ConfigBlob(BoardConfig[] Boards, sbyte[] ElectrodeOffsets, byte[]? KeyMap = null)
+public sealed record ConfigBlob(BoardConfig[] Boards, sbyte[] ElectrodeOffsets, byte[]? KeyMap = null,
+    byte CompensationMode = 0, ulong CompensationKeys = 0)
 {
-    public const byte Schema = 2;
+    public const byte Schema = 3;
 
     /// <summary>实际生效的 keyMap：未显式提供时使用默认焊接顺序。</summary>
     public byte[] Mapping => KeyMap ?? KeyMapping.Default;
 
-    public byte[] Encode()
+    public byte[] Encode(bool legacy = false)
     {
         if (Boards.Length != 4 || ElectrodeOffsets.Length != 34 || Boards.Any(b => b.BaseThreshold is < 1 or > 255 || b.SensOffset is < -127 or > 127 || b.TouchDebounce > 7 || b.ReleaseDebounce > 7 || b.Sfi > 3 || b.Esi > 7) || ElectrodeOffsets.Any(x => x is < -127 or > 127)) throw new ArgumentException("Config is outside protocol ranges.");
         if (!KeyMapping.TryValidate(Mapping, out var mappingError)) throw new ArgumentException($"Config key mapping is invalid: {mappingError}.");
-        var bytes = new byte[ProtocolConstants.ConfigBlobLength]; bytes[0] = Schema;
+        if (CompensationMode > 2 || CompensationKeys > 0x3FFFFFFFFUL) throw new ArgumentException("Invalid compensation settings.");
+        if (legacy && (CompensationMode != 0 || CompensationKeys != 0)) throw new NotSupportedException("Firmware does not support experimental compensation.");
+        var bytes = new byte[legacy ? ProtocolConstants.LegacyConfigBlobLength : ProtocolConstants.ConfigBlobLength]; bytes[0] = legacy ? (byte)2 : Schema;
         for (var i = 0; i < 4; i++) { var b = Boards[i]; var offset = 1 + i * 6; bytes[offset] = b.BaseThreshold; bytes[offset + 1] = unchecked((byte)b.SensOffset); bytes[offset + 2] = b.TouchDebounce; bytes[offset + 3] = b.ReleaseDebounce; bytes[offset + 4] = b.Sfi; bytes[offset + 5] = b.Esi; }
         for (var i = 0; i < 34; i++) bytes[25 + i] = unchecked((byte)ElectrodeOffsets[i]);
         Mapping.CopyTo(bytes, 59);
+        if (!legacy) { bytes[93] = CompensationMode; for (var i = 0; i < 5; i++) bytes[94 + i] = (byte)(CompensationKeys >> (8 * i)); }
         return bytes;
     }
     public static ConfigBlob Decode(ReadOnlySpan<byte> bytes)
     {
-        if (bytes.Length != ProtocolConstants.ConfigBlobLength || bytes[0] != Schema) throw new FormatException("Invalid config blob.");
+        var legacy = bytes.Length == ProtocolConstants.LegacyConfigBlobLength && bytes[0] == 2;
+        if (!legacy && (bytes.Length != ProtocolConstants.ConfigBlobLength || bytes[0] != Schema)) throw new FormatException("Invalid config blob.");
         var boards = new BoardConfig[4]; for (var i = 0; i < 4; i++) { var o = 1 + i * 6; boards[i] = new(bytes[o], unchecked((sbyte)bytes[o + 1]), bytes[o + 2], bytes[o + 3], bytes[o + 4], bytes[o + 5]); }
         var electrodes = new sbyte[34]; for (var i = 0; i < electrodes.Length; i++) electrodes[i] = unchecked((sbyte)bytes[25 + i]);
         var mapping = bytes.Slice(59, 34).ToArray();
         if (!KeyMapping.TryValidate(mapping, out _)) throw new FormatException("Invalid config key mapping.");
-        return new ConfigBlob(boards, electrodes, mapping);
+        ulong keys = 0;
+        if (!legacy) for (var i = 0; i < 5; i++) keys |= (ulong)bytes[94 + i] << (8 * i);
+        var mode = legacy ? (byte)0 : bytes[93];
+        if (mode > 2 || keys > 0x3FFFFFFFFUL) throw new FormatException("Invalid compensation settings.");
+        return new ConfigBlob(boards, electrodes, mapping, mode, keys);
     }
     public static ConfigBlob Defaults() => new(Enumerable.Repeat(new BoardConfig(), 4).ToArray(), new sbyte[] { -3, -3, -3, -3, 0, -3, -3, -3, -17, -18, 0, 0, 2, 0, 2, 3, -17, -19, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -18, -2, 0, 0 }, (byte[])KeyMapping.Default.Clone());
 }
@@ -52,10 +61,35 @@ public readonly record struct StreamStartResult(ushort AcceptedRateHz, ushort Ac
     }
 }
 
-public sealed record DebugFrame(uint TimestampMs, ulong TouchBits, ushort[] Filtered, ushort[] Baseline, byte[] ChipStatus, ushort I2cErrors)
+public sealed record DebugFrame(uint TimestampMs, ulong TouchBits, ushort[] Filtered, ushort[] Baseline, byte[] ChipStatus, ushort I2cErrors,
+    ulong? HardwareTouchBits = null, byte[]? CompensationThresholds = null, ulong CompensationActiveBits = 0)
 {
-    public byte[] Encode() { if (Filtered.Length != 48 || Baseline.Length != 48 || ChipStatus.Length != 4 || TouchBits > 0x3FFFFFFFF) throw new ArgumentException("Invalid debug frame."); var b = new byte[207]; BinaryPrimitives.WriteUInt32LittleEndian(b, TimestampMs); for (var i = 0; i < 5; i++) b[4 + i] = (byte)(TouchBits >> (8 * i)); for (var i = 0; i < 48; i++) { BinaryPrimitives.WriteUInt16LittleEndian(b.AsSpan(9 + i * 2), Filtered[i]); BinaryPrimitives.WriteUInt16LittleEndian(b.AsSpan(105 + i * 2), Baseline[i]); } ChipStatus.CopyTo(b, 201); BinaryPrimitives.WriteUInt16LittleEndian(b.AsSpan(205), I2cErrors); return b; }
-    public static DebugFrame Decode(ReadOnlySpan<byte> b) { if (b.Length != 207) throw new FormatException("DEBUG_FRAME payload length."); var filtered = new ushort[48]; var baseline = new ushort[48]; for (var i = 0; i < 48; i++) { filtered[i] = BinaryPrimitives.ReadUInt16LittleEndian(b[(9 + i * 2)..]); baseline[i] = BinaryPrimitives.ReadUInt16LittleEndian(b[(105 + i * 2)..]); } ulong bits = 0; for (var i = 0; i < 5; i++) bits |= (ulong)b[4 + i] << (8 * i); return new(BinaryPrimitives.ReadUInt32LittleEndian(b), bits & 0x3FFFFFFFF, filtered, baseline, b[201..205].ToArray(), BinaryPrimitives.ReadUInt16LittleEndian(b[205..])); }
+    public byte[] Encode()
+    {
+        if (Filtered.Length != 48 || Baseline.Length != 48 || ChipStatus.Length != 4 || TouchBits > 0x3FFFFFFFF ||
+            HardwareTouchBits > 0x3FFFFFFFF || CompensationActiveBits > 0x3FFFFFFFF || CompensationThresholds is { Length: not 34 }) throw new ArgumentException("Invalid debug frame.");
+        var b = new byte[HardwareTouchBits.HasValue ? 251 : 207];
+        BinaryPrimitives.WriteUInt32LittleEndian(b, TimestampMs);
+        for (var i = 0; i < 5; i++) b[4 + i] = (byte)(TouchBits >> (8 * i));
+        for (var i = 0; i < 48; i++) { BinaryPrimitives.WriteUInt16LittleEndian(b.AsSpan(9 + i * 2), Filtered[i]); BinaryPrimitives.WriteUInt16LittleEndian(b.AsSpan(105 + i * 2), Baseline[i]); }
+        ChipStatus.CopyTo(b, 201); BinaryPrimitives.WriteUInt16LittleEndian(b.AsSpan(205), I2cErrors);
+        if (HardwareTouchBits.HasValue)
+        {
+            for (var i = 0; i < 5; i++) { b[207 + i] = (byte)(HardwareTouchBits.Value >> (8 * i)); b[246 + i] = (byte)(CompensationActiveBits >> (8 * i)); }
+            CompensationThresholds?.CopyTo(b, 212);
+        }
+        return b;
+    }
+    public static DebugFrame Decode(ReadOnlySpan<byte> b)
+    {
+        if (b.Length is not (207 or 251)) throw new FormatException("DEBUG_FRAME payload length.");
+        var filtered = new ushort[48]; var baseline = new ushort[48];
+        for (var i = 0; i < 48; i++) { filtered[i] = BinaryPrimitives.ReadUInt16LittleEndian(b[(9 + i * 2)..]); baseline[i] = BinaryPrimitives.ReadUInt16LittleEndian(b[(105 + i * 2)..]); }
+        ulong bits = 0, hardware = 0, active = 0;
+        for (var i = 0; i < 5; i++) { bits |= (ulong)b[4 + i] << (8 * i); if (b.Length == 251) { hardware |= (ulong)b[207 + i] << (8 * i); active |= (ulong)b[246 + i] << (8 * i); } }
+        return new(BinaryPrimitives.ReadUInt32LittleEndian(b), bits & 0x3FFFFFFFF, filtered, baseline, b[201..205].ToArray(), BinaryPrimitives.ReadUInt16LittleEndian(b[205..]),
+            b.Length == 251 ? hardware & 0x3FFFFFFFF : null, b.Length == 251 ? b[212..246].ToArray() : null, active & 0x3FFFFFFFF);
+    }
 }
 
 public static class LegacyCodec

@@ -24,7 +24,7 @@ public sealed class AsyncCommand(Func<Task> execute, Func<bool>? canExecute = nu
     public async void Execute(object? parameter) { if (!CanExecute(parameter)) return; running = true; CanExecuteChanged?.Invoke(this, EventArgs.Empty); try { await execute(); } finally { running = false; CanExecuteChanged?.Invoke(this, EventArgs.Empty); } }
 }
 
-public sealed class MainViewModel : NotifyModel, IAsyncDisposable
+public sealed partial class MainViewModel : NotifyModel, IAsyncDisposable
 {
     private readonly Func<string, (SerialTransport Transport, IRequestClient Client)> transportFactory;
     private SerialTransport? transport;
@@ -75,6 +75,7 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
     private readonly MappingHistory mappingHistory = new();
     private bool replayingHistory;
     public TelemetrySessionModel Telemetry { get; } = new();
+    public SignalChartModel SignalChart { get; } = new();
     public McpGuideModel McpGuide { get; } = new();
     /// <summary>固件版本页：工具/设备/待刷/远端四条版本，以及一键刷写。</summary>
     public FirmwareViewModel FirmwareInfo { get; } = new();
@@ -124,17 +125,17 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
         ConnectCommand = new AsyncCommand(ConnectAsync, () => !IsBusy && !IsConnected && !string.IsNullOrWhiteSpace(SelectedPort));
         DisconnectCommand = new AsyncCommand(DisconnectAsync, () => IsConnected && !IsBusy);
         CancelConnectCommand = new AsyncCommand(CancelConnectAsync, () => connectCancellation is not null);
-        ApplyCommand = new AsyncCommand(ApplyAsync, () => !IsBusy && IsConnected && IsDirty && !HasConflict && !Editor.HasMappingConflict && !IsStreaming && !IsGameMode);
-        SaveCommand = new AsyncCommand(SaveAsync, () => !IsBusy && IsConnected && !IsDirty && !HasConflict && !Editor.HasMappingConflict && !IsStreaming && !IsGameMode);
-        ReadbackCommand = new AsyncCommand(ReadbackAsync, () => !IsBusy && IsConnected && !IsStreaming && !IsGameMode);
-        RestoreDefaultsCommand = new AsyncCommand(RestoreDefaults, () => !IsBusy && IsConnected);
+        ApplyCommand = new AsyncCommand(ApplyAsync, () => !IsBusy && IsConnected && IsDirty && !HasConflict && !Editor.HasMappingConflict && !IsStreaming && !IsGameMode && !IsGuidedLocked);
+        SaveCommand = new AsyncCommand(SaveAsync, () => !IsBusy && IsConnected && !IsDirty && !HasConflict && !Editor.HasMappingConflict && !IsStreaming && !IsGameMode && !IsGuidedLocked);
+        ReadbackCommand = new AsyncCommand(ReadbackAsync, () => !IsBusy && IsConnected && !IsStreaming && !IsGameMode && !IsGuidedLocked);
+        RestoreDefaultsCommand = new AsyncCommand(RestoreDefaults, () => !IsBusy && IsConnected && !IsGuidedLocked);
         UseDeviceCommand = new AsyncCommand(() => { HasConflict = false; StatusMessage = Localizer.Instance["Msg.DeviceSelected"]; return Task.CompletedTask; });
-        UseLocalCommand = new AsyncCommand(UseLocalAsync, () => HasConflict && IsConnected);
-        CalibrateCommand = new AsyncCommand(CalibrateAsync, () => IsConnected && !IsBusy && calibrationCancellation is null);
+        UseLocalCommand = new AsyncCommand(UseLocalAsync, () => HasConflict && IsConnected && !IsGuidedLocked);
+        CalibrateCommand = new AsyncCommand(CalibrateAsync, () => IsConnected && !IsBusy && calibrationCancellation is null && !IsGuidedLocked);
         CancelCalibrationCommand = new AsyncCommand(CancelCalibrationAsync, () => calibrationCancellation is not null);
-        StartStreamCommand = new AsyncCommand(StartStreamAsync, () => IsConnected && streamCancellation is null && !IsBusy && !IsGuidedRunning && !IsMappingRunning);
+        StartStreamCommand = new AsyncCommand(StartStreamAsync, () => IsConnected && streamCancellation is null && !IsBusy && !IsGuidedLocked && !IsMappingRunning);
         StopStreamCommand = new AsyncCommand(StopStreamAsync, () => streamCancellation is not null);
-        GameModeCommand = new AsyncCommand(StartGameModeAsync, () => IsConnected && gameCancellation is null && !IsBusy && !IsStreaming && !IsGuidedRunning && !IsMappingRunning);
+        GameModeCommand = new AsyncCommand(StartGameModeAsync, () => IsConnected && gameCancellation is null && !IsBusy && !IsStreaming && !IsGuidedLocked && !IsMappingRunning);
         StopGameModeCommand = new AsyncCommand(StopGameModeAsync, () => gameCancellation is not null);
         ResetAllElectrodesCommand = new RelayCommand(() => { Editor.ResetAllElectrodes(); MarkDirty(); });
         RestoreDefaultMappingCommand = new RelayCommand(() => { Editor.RestoreDefaultMapping(); MarkDirty(); });
@@ -144,16 +145,18 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
         RollbackMappingCommand = new RelayCommand(RollbackMappingSnapshot);
         ToggleMcpServeCommand = new AsyncCommand(ToggleMcpServeAsync);
         RefreshFirmwareCommand = new AsyncCommand(RefreshFirmwareAsync);
-        FlashFirmwareCommand = new AsyncCommand(FlashFirmwareAsync, () => FirmwareInfo.CanFlash);
+        FlashFirmwareCommand = new AsyncCommand(FlashFirmwareAsync, () => FirmwareInfo.CanFlash && !IsGuidedLocked);
         StepUpCommand = new RelayCommand(() => Editor.CycleStep(1));
         StepDownCommand = new RelayCommand(() => Editor.CycleStep(-1));
-        StartGuidedCommand = new AsyncCommand(StartGuidedAsync, () => IsConnected && !IsBusy && guidedCancellation is null && !IsStreaming && !IsGameMode && !IsMappingRunning);
+        StartGuidedCommand = new AsyncCommand(StartGuidedAsync, () => CanStartGuided && guidedResult is null);
         SkipGuidedKeyCommand = new RelayCommand(SkipGuidedKey, () => guidedSession is not null);
         FinishGuidedKeyCommand = new RelayCommand(FinishGuidedKey, () => guidedSession?.CanFinishCurrentKeyEarly == true);
-        CancelGuidedCommand = new AsyncCommand(CancelGuidedAsync, () => guidedCancellation is not null);
-        ApplyGuidedResultCommand = new RelayCommand(ApplyGuidedResult, () => guidedResult is not null);
-        DiscardGuidedResultCommand = new RelayCommand(DiscardGuidedResult, () => guidedResult is not null);
-        StartMappingCommand = new AsyncCommand(StartMappingAsync, () => IsConnected && !IsBusy && mappingCancellation is null && guidedCancellation is null && !IsStreaming && !IsGameMode);
+        CancelGuidedCommand = new AsyncCommand(CancelGuidedAsync, () => IsGuidedRunning && !IsBusy);
+        ApplyGuidedResultCommand = new RelayCommand(ApplyGuidedResult, () => !IsBusy && !IsGuidedRunning && guidedTrial is not null && guidedVerification?.Passed == true);
+        DiscardGuidedResultCommand = new AsyncCommand(DiscardGuidedResultAsync, () => !IsBusy && !IsGuidedRunning && (guidedResult is not null || guidedTrial is not null));
+        VerifyGuidedCommand = new AsyncCommand(VerifyGuidedAsync, () => CanStartGuided && guidedResult?.MeasuredCount > 0);
+        RetryGuidedCommand = new AsyncCommand(RetryGuidedAsync, () => CanStartGuided && FailedGuidedKeys().Count > 0);
+        StartMappingCommand = new AsyncCommand(StartMappingAsync, () => IsConnected && !IsBusy && mappingCancellation is null && !IsGuidedLocked && !IsStreaming && !IsGameMode);
         SkipMappingKeyCommand = new RelayCommand(SkipMappingKey, () => mappingSession is not null);
         FinishMappingKeyCommand = new RelayCommand(FinishMappingKey, () => mappingSession?.CanFinishCurrentKeyEarly == true);
         CancelMappingCommand = new AsyncCommand(CancelMappingAsync, () => mappingCancellation is not null);
@@ -176,6 +179,9 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
         OnPropertyChanged(nameof(GameFrameRateLabel));
         OnPropertyChanged(nameof(CalibrationHeadline));
         OnPropertyChanged(nameof(GuidedLiveDepthLabel));
+        OnPropertyChanged(nameof(GuidedVerificationLabel));
+        SignalChart.RaiseLocalized();
+        foreach (var board in GuidedBoardChoices) board.RaiseLocalized();
         OnPropertyChanged(nameof(MappingLiveDepthLabel));
         OnPropertyChanged(nameof(McpServeLabel));
         OnPropertyChanged(nameof(McpToggleLabel));
@@ -214,6 +220,8 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
     public ICommand CancelGuidedCommand { get; }
     public ICommand ApplyGuidedResultCommand { get; }
     public ICommand DiscardGuidedResultCommand { get; }
+    public ICommand VerifyGuidedCommand { get; }
+    public ICommand RetryGuidedCommand { get; }
     public ICommand StartMappingCommand { get; }
     public ICommand SkipMappingKeyCommand { get; }
     public ICommand FinishMappingKeyCommand { get; }
@@ -245,7 +253,7 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
     }
     public double GuidedTriggerRatio => GuidedTriggerPercent / 100.0;
     public bool IsGuidedRunning => guidedCancellation is not null || guidedSession is not null;
-    public bool ShowGuidedIntro => !IsGuidedRunning && guidedResult is null;
+    public bool ShowGuidedIntro => !IsGuidedRunning && guidedResult is null && guidedTrial is null;
     public bool HasGuidedResult => guidedResult is not null;
     public string GuidedStepLabel { get => guidedStepLabel; private set { guidedStepLabel = value; OnPropertyChanged(); } }
     public double GuidedProgress { get => guidedProgress; private set { guidedProgress = value; OnPropertyChanged(); } }
@@ -278,7 +286,7 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
     public double GameFrameRate { get => gameFrameRate; private set { gameFrameRate = value; OnPropertyChanged(); OnPropertyChanged(nameof(GameFrameRateLabel)); } }
     public string GameFrameRateLabel => string.Format(Localizer.Instance["Live.GameRate"], gameFrameRate);
     public bool IsConnecting => connectCancellation is not null;
-    public bool CanToggleGameMode => (IsConnected && !IsBusy && !IsStreaming) || IsGameMode;
+    public bool CanToggleGameMode => (IsConnected && !IsBusy && !IsStreaming && !IsGuidedLocked) || IsGameMode;
     public bool IsGameModeActive
     {
         get => IsGameMode;
@@ -327,6 +335,7 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
     /// <summary>MCP 改板参数：直接改编辑器，界面和「未应用」标记同步变化。</summary>
     internal void McpStageBoard(int boardIndex, BoardEdit edit)
     {
+        EnsureGuidedNotLocked();
         var board = Editor.Boards[boardIndex];
         if (edit.BaseThreshold is { } baseThreshold) board.BaseThreshold = baseThreshold;
         if (edit.SensOffset is { } sensOffset) board.SensOffset = sensOffset;
@@ -340,6 +349,7 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
     /// <summary>MCP 改单键偏移：走编辑器属性，单键面板上的着色和提示会一起刷新。</summary>
     internal void McpStageElectrode(int keyIndex, int offset)
     {
+        EnsureGuidedNotLocked();
         Editor.Electrodes[keyIndex].Offset = offset;
         MarkDirty();
     }
@@ -347,6 +357,7 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
     /// <summary>MCP 改映射：与 stdio 模式共用同一套对调语义，34 键始终保持一一对应。</summary>
     internal void McpStageMapping(int keyIndex, int boardSlot, int channel, bool swap)
     {
+        EnsureGuidedNotLocked();
         var mapping = McpMapping.Change(Editor.CurrentMapping(), keyIndex, boardSlot, channel, swap);
         // GUI 这边还要把「组序 → 板槽位」的排布带上：按键序写入映射，槽位保持现状。
         Editor.LoadMapping(mapping, Editor.CurrentSlots());
@@ -355,6 +366,7 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
     /// <summary>MCP 读遥测：复用 GUI 的那条串口。界面正在流式输出时拒绝，避免两路读循环互相抢帧。</summary>
     internal async Task<string> McpReadTelemetryAsync(TelemetryRequest request, CancellationToken cancellationToken)
     {
+        EnsureGuidedNotLocked();
         if (transport is null) throw new InvalidOperationException("not connected; call connect first");
         if (IsStreaming || IsGameMode) throw new InvalidOperationException(
             "the GUI is already streaming; stop the debug stream / game mode in the app first");
@@ -389,6 +401,11 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
     public Task RunStopGameModeForTestAsync() => StopGameModeAsync();
     public Task RunApplyForTestAsync() => ApplyAsync();
     public Task RunSaveForTestAsync() => SaveAsync();
+    public Task RunStartGuidedForTestAsync() => StartGuidedAsync();
+    public Task RunCancelGuidedForTestAsync() => CancelGuidedAsync();
+    public Task RunVerifyGuidedForTestAsync() => VerifyGuidedAsync();
+    public Task RunDiscardGuidedForTestAsync() => DiscardGuidedResultAsync();
+    public void PushGuidedFrameForTest(DebugFrame frame) => OnGuidedFrame(new DebugFrameEvent(0, frame, DateTimeOffset.UtcNow));
 
     // MCP 也是走这两条路径（GUI 里的「连接 / 断开」按钮），所以进度、错误提示、
     // 状态灯都和手工操作完全一致，AI 做的每一步在界面上都看得见。
@@ -405,6 +422,8 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
         IsBusy = true; Status = ConnectionStatus.Connecting; StatusMessage = Localizer.Instance["Msg.Opening"]; RefreshCommands();
         try
         {
+            if (guidedTrial is not null && !string.Equals(guidedTrialPort, SelectedPort, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException(Localizer.Instance["Guided.ReconnectOriginal"]);
             // 上一次连接可能失败/中断而残留了未释放的传输对象（会占着 COM 句柄），先清掉再新建。
             if (transport is not null) await DisconnectTransportAsync();
             (transport, client) = transportFactory(SelectedPort); workflow = new ConfigurationWorkflow(client);
@@ -418,9 +437,19 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
             FirmwareInfo.DeviceProtocol = $"{ack.Result[0]}.{ack.Result[1]}";
             FirmwareInfo.DeviceVersion = new FirmwareVersion(ack.Result[2], ack.Result[3], ack.Result[4]);
             FirmwareInfo.HasKeyMappingCapability = (capabilities & ProtocolConstants.CapabilityKeyMapping) != 0;
+            workflow.SupportsCompensation = (capabilities & ProtocolConstants.CapabilityCompensation) != 0;
+            Editor.SupportsCompensation = workflow.SupportsCompensation;
             if ((capabilities & ProtocolConstants.CapabilityKeyMapping) == 0) throw new NotSupportedException(Localizer.Instance["Msg.FirmwareTooOld"]);
             await EnterConfigAsync(token);
             var deviceConfig = await ReadConfigWithRecoveryAsync(token);
+            if (guidedTrial is not null)
+            {
+                guidedTrial = new GuidedCalibrationTrial(guidedTrial.Original, workflow);
+                deviceConfig = await guidedTrial.RestoreAsync(token);
+                guidedTrial = null;
+                guidedTrialPort = null;
+                guidedVerification = null;
+            }
             applied = deviceConfig; Editor.Update(applied); WireEditor(); IsDirty = false; Telemetry.ApplyThresholds(applied); ResetMappingHistory();
             var identity = new DeviceIdentity(SelectedPort, null, ack.Result[0], ack.Result[1]);
             var path = ConfigPath(identity);
@@ -455,6 +484,9 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
         RefreshCommands();
         try
         {
+            guidedSession = null;
+            await EndGuidedStreamAsync();
+            if (guidedTrial is not null) await RestoreGuidedTrialAsync();
             if (streamCancellation is not null)
             {
                 streamCancellation.Cancel();
@@ -488,7 +520,7 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
         finally
         {
             Status = ConnectionStatus.Disconnected;
-            StatusMessage = Localizer.Instance["Msg.DisconnectedManual"];
+            StatusMessage = Localizer.Instance[guidedTrial is null ? "Msg.DisconnectedManual" : "Guided.RestorePending"];
             IsBusy = false;
             HasConflict = false;
             foreach (var key in TouchKeys) key.IsPressed = false;
@@ -507,6 +539,7 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
     /// <summary>GUI 与 MCP 共用的应用路径；失败时抛出，由调用方决定怎么呈现。</summary>
     internal async Task<ConfigBlob> McpApplyAsync(CancellationToken cancellationToken)
     {
+        EnsureGuidedNotLocked();
         if (workflow is null) throw new InvalidOperationException("not connected");
         applied = await workflow.ApplyAsync(Editor.ToConfig(), cancellationToken);
         IsDirty = false; OnPropertyChanged(nameof(DirtyLabel)); Telemetry.ApplyThresholds(applied); SaveMappingSnapshot("apply");
@@ -535,6 +568,7 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
     /// </summary>
     internal async Task<SaveOutcome> McpSaveAsync(CancellationToken cancellationToken)
     {
+        EnsureGuidedNotLocked();
         if (workflow is null) throw new InvalidOperationException("not connected; call connect first");
         await workflow.SaveAsync(cancellationToken);
         try
@@ -584,6 +618,8 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
 
     private void WireEditor()
     {
+        Editor.PropertyChanged -= OnEditorSettingsChanged;
+        Editor.PropertyChanged += OnEditorSettingsChanged;
         foreach (var board in Editor.Boards) board.PropertyChanged += (_, _) => MarkDirty();
         foreach (var electrode in Editor.Electrodes) electrode.PropertyChanged += (_, _) => MarkDirty();
         foreach (var mapping in Editor.KeyMappings) mapping.PropertyChanged += (_, _) => MarkDirty();
@@ -759,7 +795,7 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
         OnPropertyChanged(nameof(IsGameMode));
         OnPropertyChanged(nameof(IsGameModeActive));
         OnPropertyChanged(nameof(CanToggleGameMode));
-        foreach (var command in new[] { RefreshPortsCommand, ConnectCommand, DisconnectCommand, CancelConnectCommand, ApplyCommand, SaveCommand, ReadbackCommand, RestoreDefaultsCommand, UseDeviceCommand, UseLocalCommand, CalibrateCommand, CancelCalibrationCommand, StartStreamCommand, StopStreamCommand, GameModeCommand, StopGameModeCommand, StartGuidedCommand, SkipGuidedKeyCommand, FinishGuidedKeyCommand, CancelGuidedCommand, ApplyGuidedResultCommand, DiscardGuidedResultCommand, StartMappingCommand, SkipMappingKeyCommand, FinishMappingKeyCommand, CancelMappingCommand, UndoMappingCommand, RedoMappingCommand, FillBoardsCommand, RollbackMappingCommand, ToggleMcpServeCommand, FlashFirmwareCommand })
+        foreach (var command in new[] { RefreshPortsCommand, ConnectCommand, DisconnectCommand, CancelConnectCommand, ApplyCommand, SaveCommand, ReadbackCommand, RestoreDefaultsCommand, UseDeviceCommand, UseLocalCommand, CalibrateCommand, CancelCalibrationCommand, StartStreamCommand, StopStreamCommand, GameModeCommand, StopGameModeCommand, StartGuidedCommand, SkipGuidedKeyCommand, FinishGuidedKeyCommand, CancelGuidedCommand, ApplyGuidedResultCommand, DiscardGuidedResultCommand, VerifyGuidedCommand, RetryGuidedCommand, StartMappingCommand, SkipMappingKeyCommand, FinishMappingKeyCommand, CancelMappingCommand, UndoMappingCommand, RedoMappingCommand, FillBoardsCommand, RollbackMappingCommand, ToggleMcpServeCommand, FlashFirmwareCommand })
         {
             if (command is AsyncCommand asyncCommand) asyncCommand.Refresh();
             else if (command is RelayCommand relayCommand) relayCommand.Refresh();
@@ -767,6 +803,9 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
         OnPropertyChanged(nameof(IsGuidedRunning));
         OnPropertyChanged(nameof(ShowGuidedIntro));
         OnPropertyChanged(nameof(HasGuidedResult));
+        OnPropertyChanged(nameof(IsGuidedLocked));
+        OnPropertyChanged(nameof(CanEditGuidedSelection));
+        OnPropertyChanged(nameof(GuidedVerificationLabel));
         OnPropertyChanged(nameof(IsMappingRunning));
         OnPropertyChanged(nameof(ShowMappingIntro));
         OnPropertyChanged(nameof(HasMappingConflict));
@@ -818,6 +857,7 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
     /// （那是界面「取消」按钮的通道），失败直接抛给调用方。</summary>
     internal async Task<(CalibrationStatus Status, CalibrationReason Reason)> McpCalibrateAsync(IEventRequestClient events, CancellationToken cancellationToken)
     {
+        EnsureGuidedNotLocked();
         var previous = applied;
         CalibrationDeadlineMs = 60000;
         CalibrationProgress = 0.1;
@@ -875,12 +915,17 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
     {
         if (transport is null) { StatusMessage = Localizer.Instance["Msg.StreamUnavailable"]; return; }
         streamCancellation = new CancellationTokenSource(); Telemetry.Begin(ProtocolConstants.DefaultStreamRateHz); RefreshCommands(); StatusMessage = Localizer.Instance["Msg.StreamStarting"];
+        SignalChart.Clear();
         try
         {
             var stream = await transport.StreamDebugEventsAsync(ProtocolConstants.DefaultStreamRateHz, sample =>
             {
+                Dispatcher.UIThread.InvokeAsync(() =>
+                {
                 Telemetry.AddFrame(sample.Frame, sample.Sequence, sample.ReceivedAt);
+                SignalChart.Add(sample.Frame, applied);
                 for (var i = 0; i < TouchKeys.Count; i++) TouchKeys[i].IsPressed = (sample.Frame.TouchBits & (1UL << i)) != 0;
+                }).GetAwaiter().GetResult();
             }, error => Telemetry.MarkMalformed(Localizer.Instance["Msg.MalformedFrame"] + error.Message), streamCancellation.Token, info => Telemetry.SetAcceptedRate(info.AcceptedRateHz, info.ActualRateHz));
             Telemetry.SetAcceptedRate(stream.AcceptedRateHz, stream.ActualRateHz);
         }
@@ -899,46 +944,50 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
     }
     private async Task StopStreamAsync() { streamCancellation?.Cancel(); await Task.CompletedTask; }
 
-    // ---- 引导式强力自动调整：复用调试流，逐键引导"按下→保持→松开"，工具侧算阈值与板级参数 ----
+    // ---- 分板引导校准：采集 → 安全范围求解 → RAM 试用 → 硬件验证 → 显式采纳 ----
     private async Task StartGuidedAsync()
     {
-        if (transport is null) { StatusMessage = Localizer.Instance["Msg.StreamUnavailable"]; return; }
-        // 目标键按 34 键标签顺序（与编辑器 Electrodes 一一对应）。
+        if (!CanStartGuided) { StatusMessage = Localizer.Instance["Guided.ApplyFirst"]; return; }
         var targets = BuildGuidedTargets();
         if (targets.Count == 0) { StatusMessage = Localizer.Instance["Guided.NoTargets"]; return; }
-        guidedResult = null; GuidedBoards.Clear(); GuidedKeys.Clear();
-        guidedProgress = 0; guidedKeyProgress = 0; guidedLiveDepth = 0;
-        guidedSession = new GuidedCalibrationSession(targets);
-        guidedCancellation = new CancellationTokenSource();
-        guidedLastFrameMs = 0; guidedPreviousRawMs = 0; guidedFirstFrame = true;
-        GuidedStepLabel = string.Format(Localizer.Instance["Guided.BaselineStep"], 0);
-        OnPropertyChanged(nameof(GuidedHeadline));
-        StreamForGuided();
-        RefreshCommands();
-        StatusMessage = Localizer.Instance["Guided.Running"];
+        guidedSource = ConfigBlob.Decode(applied.Encode());
+        guidedScope = targets;
+        guidedMeasurements.Clear();
+        guidedVerification = null;
+        StartGuidedCapture(targets, verification: false);
         await Task.CompletedTask;
     }
 
-    // 引导采集在后台线程消费调试流（~33Hz），逐帧推进状态机；UI 更新一律 Post 回 UI 线程。
+    // The stream owns the serial reader. Serialize acquisition AND user actions on the UI thread.
     private void StreamForGuided()
     {
         var token = guidedCancellation!.Token;
-        _ = Task.Run(async () =>
+        var source = guidedCancellation!;
+        source.CancelAfter(TimeSpan.FromSeconds(5));
+        guidedStreamTask = Task.Run(async () =>
         {
+            string? error = null;
             try
             {
-                await transport!.StreamDebugEventsAsync(ProtocolConstants.DefaultStreamRateHz, OnGuidedFrame, _ => { }, token,
+                await transport!.StreamDebugEventsAsync(ProtocolConstants.DefaultStreamRateHz,
+                    sample => Dispatcher.UIThread.InvokeAsync(() => OnGuidedFrame(sample)).GetAwaiter().GetResult(), _ => { }, token,
                     info => Telemetry.SetAcceptedRate(info.AcceptedRateHz, info.ActualRateHz));
             }
-            catch (OperationCanceledException) { }
-            catch (Exception ex) when (ex is IOException or InvalidOperationException) { }
-        }, token);
+            catch (OperationCanceledException) { error = Localizer.Instance["Guided.NoFrames"]; }
+            catch (Exception ex) { error = UserMessage(ex); }
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (ReferenceEquals(guidedCancellation, source) && guidedSession is not null)
+                    _ = FailGuidedCaptureAsync(error ?? Localizer.Instance["Guided.NoFrames"]);
+            });
+        });
     }
 
     private void OnGuidedFrame(DebugFrameEvent sample)
     {
         var session = guidedSession;
         if (session is null) return;
+        guidedCancellation?.CancelAfter(TimeSpan.FromSeconds(5));
         if (guidedFirstFrame)
         {
             guidedFirstFrame = false;
@@ -951,59 +1000,127 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
             guidedLastFrameMs += unchecked(sample.Frame.TimestampMs - guidedPreviousRawMs);
         }
         guidedPreviousRawMs = sample.Frame.TimestampMs;
-        session.PushFrame(guidedLastFrameMs, sample.Frame.Filtered, sample.Frame.Baseline);
+        SignalChart.Follow(session.CurrentTarget?.KeyIndex);
+        SignalChart.Add(sample.Frame, applied);
+        session.PushFrame(guidedLastFrameMs, sample.Frame.Filtered, sample.Frame.Baseline, sample.Frame.HardwareTouchBits ?? sample.Frame.TouchBits, sample.Frame.ChipStatus);
         UpdateGuidedUi(session);
-        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
-        {
-            for (var i = 0; i < TouchKeys.Count; i++) TouchKeys[i].IsPressed = (sample.Frame.TouchBits & (1UL << i)) != 0;
-        });
+        for (var i = 0; i < TouchKeys.Count; i++) TouchKeys[i].IsPressed = (sample.Frame.TouchBits & (1UL << i)) != 0;
     }
 
     private void UpdateGuidedUi(GuidedCalibrationSession session)
     {
-        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
-        {
-            if (!ReferenceEquals(guidedSession, session)) return; // 已完成/已取消
-            GuidedProgress = session.TotalProgress;
-            GuidedKeyProgress = session.KeyProgress;
-            GuidedLiveDepth = session.LiveDepth;
-            GuidedStepLabel = DescribeGuidedStep(session);
-            (SkipGuidedKeyCommand as RelayCommand)?.Refresh();
-            (FinishGuidedKeyCommand as RelayCommand)?.Refresh();
-            if (session.IsComplete) CompleteGuided();
-        });
+        if (!ReferenceEquals(guidedSession, session)) return;
+        GuidedProgress = session.TotalProgress;
+        GuidedKeyProgress = session.KeyProgress;
+        GuidedLiveDepth = session.LiveDepth;
+        GuidedStepLabel = DescribeGuidedStep(session);
+        (SkipGuidedKeyCommand as RelayCommand)?.Refresh();
+        (FinishGuidedKeyCommand as RelayCommand)?.Refresh();
+        if (session.IsComplete) _ = CompleteGuidedAsync();
     }
 
     private string DescribeGuidedStep(GuidedCalibrationSession session)
     {
+        if (session.Phase == GuidedPhase.Warmup) return Localizer.Instance["Guided.Warmup"];
         if (session.Phase == GuidedPhase.Baseline)
+        {
+            if (session.BaselineRetrying) return string.Format(Localizer.Instance["Guided.WaitStable"], session.BaselineProblemKeys);
             return string.Format(Localizer.Instance["Guided.BaselineStep"], Math.Round(session.BaselineProgress * 100));
+        }
+        if (session.Phase == GuidedPhase.FinalIdle) return Localizer.Instance["Guided.FinalIdle"];
         var target = session.CurrentTarget;
         if (target is null) return Localizer.Instance["Guided.Finishing"];
-        return string.Format(Localizer.Instance["Guided.KeyStep"], target.Label, session.CompletedRepeats + 1, session.RepeatsPerKey);
+        var action = session.CurrentHardwareStuck ? "Guided.StuckPrompt"
+            : session.RepeatState == GuidedRepeatState.Pressed ? "Guided.ReleasePrompt"
+            : guidedVerifying && session.CompletedRepeats >= 3 ? "Guided.RepeatPrompt"
+            : session.CompletedRepeats < 3 ? "Guided.LightPrompt" : "Guided.NormalPrompt";
+        return string.Format(Localizer.Instance["Guided.KeyStep"], target.Label, session.CompletedRepeats, session.RepeatsPerKey)
+            + " · " + Localizer.Instance[action];
     }
 
-    private void CompleteGuided()
+    private async Task CompleteGuidedAsync()
     {
         var session = guidedSession;
-        if (session is null || guidedResult is not null) return;
-        guidedResult = session.BuildResult(Editor.ToConfig(), GuidedTriggerRatio);
+        if (session is null) return;
         guidedSession = null;
-        EndGuidedStream();
-        PublishGuidedResult();
+        IsBusy = true;
+        try
+        {
+            await EndGuidedStreamAsync();
+            if (session.Fault is not null) { await FailGuidedCaptureAsync(Localizer.Instance[session.Fault]); return; }
+            if (guidedVerifying)
+            {
+                guidedVerification = GuidedVerificationReport.From(guidedScope, session);
+                var falseTouches = session.Inputs.Aggregate(session.IdleTouchedBits, (bits, input) => bits | input.UnexpectedTouchBits);
+                foreach (var input in guidedMeasurements.Values.ToArray())
+                {
+                    var verified = session.Inputs.FirstOrDefault(i => i.KeyIndex == input.KeyIndex);
+                    var board = applied.Boards[input.Board];
+                    var tried = board.BaseThreshold + board.SensOffset + applied.ElectrodeOffsets[input.KeyIndex];
+                    var missed = verified is not null && verified.Measured && verified.Samples.Any(p => !p.HardwareSeen);
+                    guidedMeasurements[input.KeyIndex] = GuidedCalibrationAlgorithm.Refine(input, tried,
+                        missed, (falseTouches & (1UL << input.KeyIndex)) != 0,
+                        verified?.ReleaseStuck == true, verified?.ReleaseUpper ?? 0);
+                }
+                PublishGuidedResult();
+            }
+            else
+            {
+                foreach (var key in guidedMeasurements.Keys.ToArray())
+                {
+                    var old = guidedMeasurements[key];
+                    guidedMeasurements[key] = old with { CrossTalk = Math.Max(old.CrossTalk, session.CrossTalkFor(old.Channel)) };
+                }
+                foreach (var input in session.Measurements())
+                {
+                    var cross = guidedMeasurements.TryGetValue(input.KeyIndex, out var old) ? Math.Max(old.CrossTalk, input.CrossTalk) : input.CrossTalk;
+                    guidedMeasurements[input.KeyIndex] = input with
+                    {
+                        CrossTalk = cross,
+                        ReleaseUpper = Math.Max(input.ReleaseUpper, old?.ReleaseUpper ?? 0),
+                        MinimumThreshold = old?.MinimumThreshold ?? 1,
+                        MaximumThreshold = old?.MaximumThreshold ?? 508
+                    };
+                }
+                guidedResult = GuidedCalibrationAlgorithm.Compute(guidedMeasurements.Values.OrderBy(i => i.KeyIndex).ToArray(), guidedSource!, GuidedTriggerRatio);
+                PublishGuidedResult();
+            }
+        }
+        catch (Exception ex) { await FailGuidedCaptureAsync(UserMessage(ex)); }
+        finally { guidedVerifying = false; IsBusy = false; RefreshCommands(); }
     }
 
-    private void EndGuidedStream()
+    private void OnEditorSettingsChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
-        guidedCancellation?.Cancel();
-        guidedCancellation = null;
+        if (e.PropertyName == nameof(ConfigurationEditorModel.CompensationMode)) MarkDirty();
+    }
+
+    private async Task EndGuidedStreamAsync()
+    {
+        var source = guidedCancellation;
+        source?.Cancel();
+        if (guidedStreamTask is not null) await guidedStreamTask;
+        if (ReferenceEquals(guidedCancellation, source)) guidedCancellation = null;
+        source?.Dispose();
+        foreach (var key in TouchKeys) key.IsPressed = false;
     }
 
     private void PublishGuidedResult()
     {
+        var selectedKeys = GuidedKeys.Where(k => k.Adopt).Select(k => k.Outcome.KeyIndex).ToHashSet();
+        var selectedBoards = GuidedBoards.Where(b => b.Adopt).Select(b => b.Index).ToHashSet();
+        var preserveSelection = guidedVerifying && GuidedKeys.Count > 0;
         GuidedBoards.Clear(); GuidedKeys.Clear();
-        foreach (var board in guidedResult!.Boards) GuidedBoards.Add(new GuidedBoardPreview(board));
-        foreach (var key in guidedResult.Keys) GuidedKeys.Add(new GuidedKeyPreview(key));
+        foreach (var board in guidedResult!.Boards)
+            GuidedBoards.Add(new GuidedBoardPreview(board) { Adopt = !preserveSelection || selectedBoards.Contains(board.BoardIndex) });
+        foreach (var key in guidedResult.Keys)
+        {
+            var preview = new GuidedKeyPreview(key);
+            if (preserveSelection) preview.Adopt = selectedKeys.Contains(key.KeyIndex);
+            var verification = guidedVerification?.Keys.FirstOrDefault(k => k.KeyIndex == key.KeyIndex);
+            if (verification is not null) preview.VerificationReason = verification.ReasonKey;
+            GuidedKeys.Add(preview);
+        }
         var measured = guidedResult.MeasuredCount;
         var failed = guidedResult.FailedCount;
         GuidedHeadline = string.Format(Localizer.Instance["Guided.Headline"], measured, guidedResult.Keys.Count, failed, GuidedTriggerPercent);
@@ -1018,7 +1135,7 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
         var session = guidedSession;
         if (session is null) return;
         session.SkipCurrentKey(session.CurrentTimestampMs);
-        if (session.IsComplete) CompleteGuided();
+        UpdateGuidedUi(session);
     }
 
     private void FinishGuidedKey()
@@ -1026,40 +1143,41 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
         var session = guidedSession;
         if (session is null) return;
         session.FinishCurrentKeyEarly(session.CurrentTimestampMs);
-        if (session.IsComplete) CompleteGuided();
-        else RefreshCommands();
+        UpdateGuidedUi(session);
     }
 
     private async Task CancelGuidedAsync()
     {
-        guidedSession = null;
-        EndGuidedStream();
-        GuidedStepLabel = Localizer.Instance["Guided.Cancelled"];
-        StatusMessage = Localizer.Instance["Guided.Cancelled"];
-        RefreshCommands();
-        await Task.CompletedTask;
+        IsBusy = true;
+        try
+        {
+            guidedSession = null;
+            await EndGuidedStreamAsync();
+            if (guidedTrial is not null && !await RestoreGuidedTrialAsync()) return;
+            guidedVerifying = false;
+            guidedVerification = null;
+            GuidedStepLabel = Localizer.Instance["Guided.Cancelled"];
+            StatusMessage = Localizer.Instance["Guided.Cancelled"];
+        }
+        finally { IsBusy = false; RefreshCommands(); }
     }
 
-    // 把预览表里勾选的行写回编辑器（不改设备；用户随后照常 应用 → 保存）。
+    // Accept only a hardware-verified trial. Saving remains an explicit, separate action.
     private void ApplyGuidedResult()
     {
-        var result = guidedResult;
-        if (result is null) return;
-        var adoptedKeys = GuidedKeys.Where(key => key.Adopt).Select(key => key.Outcome).ToHashSet();
-        var adoptedBoards = GuidedBoards.Where(board => board.Adopt).Select(board => board.Outcome).ToHashSet();
-        var updated = GuidedCalibrationAlgorithm.Apply(result, Editor.ToConfig(),
-            key => adoptedKeys.Contains(key), board => adoptedBoards.Contains(board));
-        Editor.Update(updated);
-        WireEditor();
-        MarkDirty();
-        Telemetry.ApplyThresholds(Editor.ToConfig());
+        if (guidedVerification?.Passed != true || guidedTrial is null) return;
+        guidedTrial = null;
+        guidedTrialPort = null;
         StatusMessage = Localizer.Instance["Guided.Applied"];
-        DiscardGuidedResult();
+        ClearGuidedResult();
     }
 
-    private void DiscardGuidedResult()
+    private void ClearGuidedResult()
     {
         guidedResult = null;
+        guidedSource = null;
+        guidedMeasurements.Clear();
+        guidedVerification = null;
         GuidedBoards.Clear(); GuidedKeys.Clear();
         guidedProgress = 0; guidedKeyProgress = 0; guidedLiveDepth = 0;
         GuidedHeadline = null;
@@ -1073,8 +1191,10 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
         var targets = new List<GuidedCalibrationSession.TargetKey>();
         for (var keyIndex = 0; keyIndex < Editor.Electrodes.Count; keyIndex++)
         {
-            var electrode = Editor.Electrodes[keyIndex];
-            targets.Add(new GuidedCalibrationSession.TargetKey(keyIndex, electrode.Label, electrode.MprId * 12 + electrode.PortId, electrode.MprId));
+            var packed = applied.Mapping[keyIndex];
+            var board = KeyMapping.BoardOf(packed);
+            if (!GuidedBoardChoices[board].Selected) continue;
+            targets.Add(new GuidedCalibrationSession.TargetKey(keyIndex, KeyMapping.KeyLabels[keyIndex], KeyMapping.ChannelIndexOf(packed), board));
         }
         return targets;
     }
@@ -1274,7 +1394,6 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
     private async Task<ConfigBlob> ReadConfigAsync(CancellationToken cancellationToken = default)
     {
         var ack = ReadAck(await workflow!.RequestAsync(ProtocolConstants.FrameType.GetConfig, [], cancellationToken), ProtocolConstants.FrameType.GetConfig);
-        if (ack.Result.Length != ProtocolConstants.ConfigBlobLength) throw new FormatException("GET_CFG returned a malformed configuration.");
         return ConfigBlob.Decode(ack.Result);
     }
 
@@ -1334,5 +1453,16 @@ public sealed class MainViewModel : NotifyModel, IAsyncDisposable
         if (transport is IAsyncDisposable disposable) { try { await disposable.DisposeAsync(); } catch { } }
         transport = null; client = null; workflow = null;
     }
-    public async ValueTask DisposeAsync() { NumericInputNotifier.InvalidNumberEntered -= OnInvalidNumericInput; toastCancellation?.Cancel(); toastCancellation?.Dispose(); connectCancellation?.Cancel(); calibrationCancellation?.Cancel(); streamCancellation?.Cancel(); gameCancellation?.Cancel(); mappingCancellation?.Cancel(); guidedCancellation?.Cancel(); await StopMcpServerAsync(); if (IsConnected && workflow is not null) { try { await workflow.RequestAsync(ProtocolConstants.FrameType.ExitConfig, []); } catch { } } await DisconnectTransportAsync(); }
+    public async ValueTask DisposeAsync()
+    {
+        NumericInputNotifier.InvalidNumberEntered -= OnInvalidNumericInput;
+        toastCancellation?.Cancel(); toastCancellation?.Dispose(); connectCancellation?.Cancel();
+        calibrationCancellation?.Cancel(); streamCancellation?.Cancel(); gameCancellation?.Cancel(); mappingCancellation?.Cancel();
+        guidedSession = null;
+        await EndGuidedStreamAsync();
+        if (guidedTrial is not null && IsConnected) await RestoreGuidedTrialAsync();
+        await StopMcpServerAsync();
+        if (IsConnected && workflow is not null) { try { await workflow.RequestAsync(ProtocolConstants.FrameType.ExitConfig, []); } catch { } }
+        await DisconnectTransportAsync();
+    }
 }

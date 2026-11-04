@@ -2,9 +2,10 @@ namespace MaimaiTouchTool.Protocol;
 
 public static class ProtocolConstants
 {
-    public const byte Sync0 = 0xAA, Sync1 = 0x55, Version = 0x11;
+    public const byte Sync0 = 0xAA, Sync1 = 0x55, Version = 0x12;
     public const int HeaderLength = 8, CrcLength = 2, MaxPayload = 256;
-    public const int ConfigBlobLength = 93, DebugFrameLength = 207, GameFrameLength = 9, LegacyCommandLength = 6;
+    public const int ConfigBlobLength = 99, LegacyConfigBlobLength = 93, DebugFrameLength = 207, ExtendedDebugFrameLength = 251, GameFrameLength = 9, LegacyCommandLength = 6;
+    public const uint CapabilityCompensation = 0x20;
     public const ushort DefaultStreamRateHz = 100;
     /// <summary>VERSION 能力位：bit 4 表示固件支持可配置按键映射（协议 1.1 / schema 2）。</summary>
     public const uint CapabilityKeyMapping = 0x10;

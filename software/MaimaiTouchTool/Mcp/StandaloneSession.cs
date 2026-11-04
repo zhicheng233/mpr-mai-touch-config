@@ -32,7 +32,8 @@ public sealed class StandaloneSession : IMcpSession, IAsyncDisposable
         try
         {
             await serial.ConnectAsync(cancellationToken);
-            await serial.SendRequestAsync((byte)ProtocolConstants.FrameType.Version, [], cancellationToken);
+            var version = AckPayload.Decode((await serial.SendRequestAsync((byte)ProtocolConstants.FrameType.Version, [], cancellationToken)).Payload);
+            workflow.SupportsCompensation = version.Result.Length == 16 && (version.Result[5] & ProtocolConstants.CapabilityCompensation) != 0;
             // ENTER_CFG：容忍 AlreadyConfigured（板子已在配置模式）。
             var enter = await serial.SendRequestAsync((byte)ProtocolConstants.FrameType.EnterConfig, [], cancellationToken);
             if (enter.Type == (byte)ProtocolConstants.FrameType.Error)
@@ -81,7 +82,6 @@ public sealed class StandaloneSession : IMcpSession, IAsyncDisposable
         var frame = await workflow!.RequestAsync(ProtocolConstants.FrameType.GetConfig, [], cancellationToken);
         if (frame.Type == (byte)ProtocolConstants.FrameType.Error) throw new InvalidOperationException("GET_CFG rejected (streaming? send disconnect then reconnect)");
         var ack = AckPayload.Decode(frame.Payload);
-        if (ack.Result.Length != ProtocolConstants.ConfigBlobLength) throw new FormatException("GET_CFG malformed.");
         return ConfigBlob.Decode(ack.Result);
     }
 

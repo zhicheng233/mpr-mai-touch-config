@@ -334,12 +334,12 @@ public interface IEventRequestClient : IRequestClient
 }
 public sealed class ConfigurationWorkflow(IRequestClient client)
 {
+    public bool SupportsCompensation { get; set; } = true;
     public async Task<ConfigBlob> ApplyAsync(ConfigBlob config, CancellationToken cancellationToken = default)
     {
-        await ExpectAckAsync(ProtocolConstants.FrameType.SetConfig, config.Encode(), cancellationToken);
+        await ExpectAckAsync(ProtocolConstants.FrameType.SetConfig, config.Encode(legacy: !SupportsCompensation), cancellationToken);
         await ExpectAckAsync(ProtocolConstants.FrameType.ApplyConfig, [], cancellationToken);
         var readback = await ExpectAckAsync(ProtocolConstants.FrameType.GetConfig, [], cancellationToken);
-        if (readback.Result.Length != ProtocolConstants.ConfigBlobLength) throw new FormatException("GET_CFG returned an invalid configuration length.");
         var applied = ConfigBlob.Decode(readback.Result);
         if (!applied.Encode().AsSpan().SequenceEqual(config.Encode())) throw new InvalidDataException("Device readback differs from the applied configuration.");
         return applied;

@@ -1,5 +1,6 @@
 <Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:loc="clr-namespace:MaimaiTouchTool.Localization"
+        xmlns:controls="clr-namespace:MaimaiTouchTool.Controls"
         x:Class="MaimaiTouchTool.MainWindow" x:CompileBindings="False"
         Width="1180" Height="820" MinWidth="1400" MinHeight="620"
         Title="maimai Touch Tool">
@@ -76,7 +77,7 @@
           </Grid>
         </Border>
 
-        <Border Classes="panel">
+        <Border Classes="panel" IsEnabled="{Binding CanEditGuidedSelection}">
           <StackPanel Spacing="10">
             <StackPanel Spacing="3">
               <TextBlock Classes="section" Margin="0" Text="{DynamicResource Config.BoardSettings}"/>
@@ -117,7 +118,7 @@
           </StackPanel>
         </Border>
 
-        <Border Classes="panel">
+        <Border Classes="panel" IsEnabled="{Binding CanEditGuidedSelection}">
           <StackPanel Spacing="10">
             <StackPanel Spacing="3">
               <Grid ColumnDefinitions="*,Auto">
@@ -206,10 +207,31 @@
           </StackPanel>
         </Border>
 
+        <Border Classes="panel" IsEnabled="{Binding CanEditGuidedSelection}">
+          <StackPanel Spacing="8">
+            <ToggleSwitch Name="ExperimentalFeaturesSwitch" IsChecked="{Binding Editor.ExperimentalFeaturesEnabled, Mode=TwoWay}"
+                          IsEnabled="{Binding Editor.SupportsCompensation}"
+                          OnContent="{DynamicResource Compensation.MasterSwitch}" OffContent="{DynamicResource Compensation.MasterSwitch}"/>
+            <TextBlock IsVisible="{Binding !Editor.SupportsCompensation}" Text="{DynamicResource Compensation.Upgrade}" TextWrapping="Wrap"/>
+            <StackPanel Name="CompensationSettings" Spacing="8" IsVisible="{Binding Editor.ExperimentalFeaturesEnabled}" IsEnabled="{Binding Editor.SupportsCompensation}">
+              <TextBlock Classes="section" Text="{DynamicResource Compensation.Title}"/>
+              <TextBlock Text="{DynamicResource Compensation.Warning}" TextWrapping="Wrap" Foreground="#D8B46A"/>
+              <ComboBox SelectedIndex="{Binding Editor.CompensationBehaviorIndex, Mode=TwoWay}">
+                <ComboBoxItem Content="{DynamicResource Compensation.Observe}"/>
+                <ComboBoxItem Content="{DynamicResource Compensation.Enable}"/>
+              </ComboBox>
+              <TextBlock Text="{DynamicResource Compensation.Keys}" TextWrapping="Wrap"/>
+              <ItemsControl ItemsSource="{Binding Editor.Electrodes}">
+                <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate><DataTemplate><CheckBox Content="{Binding Label}" IsChecked="{Binding CompensationSelected}" Margin="0,0,12,0"/></DataTemplate></ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </StackPanel>
+        </Border>
       </StackPanel>
       </ScrollViewer>
       </TabItem>
-      <TabItem Header="{DynamicResource Tab.Mapping}">
+      <TabItem Header="{DynamicResource Tab.Mapping}" IsEnabled="{Binding CanEditGuidedSelection}">
       <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
       <StackPanel Spacing="16">
         <Border Classes="panel">
@@ -408,14 +430,24 @@
               <StackPanel Spacing="3">
                 <TextBlock Classes="section" Margin="0" Text="{DynamicResource Guided.Title}"/>
                 <TextBlock Foreground="#A9B1BA" Text="{DynamicResource Guided.Hint}" TextWrapping="Wrap"/>
+                <TextBlock Foreground="#D8B46A" FontSize="11" Text="{DynamicResource Guided.CenterHint}" TextWrapping="Wrap"/>
               </StackPanel>
 
-              <Grid ColumnDefinitions="Auto,Auto,Auto,*" ColumnSpacing="10" IsVisible="{Binding ShowGuidedIntro}">
+              <StackPanel Spacing="8" IsVisible="{Binding ShowGuidedIntro}">
+                <TextBlock Text="{DynamicResource Guided.Scope}"/>
+                <ItemsControl ItemsSource="{Binding GuidedBoardChoices}">
+                  <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate><DataTemplate><CheckBox Margin="0,0,16,0" IsChecked="{Binding Selected}" Content="{Binding Label}"/></DataTemplate></ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <TextBlock Foreground="#D8B46A" Text="{DynamicResource Guided.ApplyFirst}" TextWrapping="Wrap"/>
+              <Grid ColumnDefinitions="Auto,Auto,Auto" ColumnSpacing="10">
                 <TextBlock VerticalAlignment="Center" Text="{DynamicResource Guided.TriggerRatio}"/>
                 <TextBox Grid.Column="1" Classes="pill-editor" VerticalAlignment="Center" Text="{Binding GuidedTriggerPercent, Converter={StaticResource SafeIntConverter}, UpdateSourceTrigger=PropertyChanged}" ToolTip.Tip="{DynamicResource Guided.TriggerRatioTip}"/>
                 <Button Grid.Column="2" Classes="primary" Command="{Binding StartGuidedCommand}" Content="{DynamicResource Guided.Start}"/>
-                <TextBlock Grid.Column="3" VerticalAlignment="Center" FontSize="11" Foreground="#7F8A95" TextWrapping="Wrap" Text="{DynamicResource Guided.RangeHint}"/>
               </Grid>
+                <TextBlock FontSize="11" Foreground="#7F8A95" TextWrapping="Wrap" Text="{DynamicResource Guided.RangeHint}"/>
+                <TextBlock FontSize="11" Foreground="#D8B46A" TextWrapping="Wrap" Text="{DynamicResource Guided.ReleaseSafetyHint}"/>
+              </StackPanel>
 
               <StackPanel Spacing="8" IsVisible="{Binding IsGuidedRunning}">
                 <TextBlock Text="{Binding GuidedStepLabel}" TextWrapping="Wrap" FontWeight="SemiBold"/>
@@ -429,10 +461,16 @@
                 </StackPanel>
               </StackPanel>
 
+              <Expander Header="{DynamicResource Chart.Title}" IsExpanded="True">
+                <controls:SignalChartPanel DataContext="{Binding SignalChart}"/>
+              </Expander>
+
               <StackPanel Spacing="10" IsVisible="{Binding HasGuidedResult}">
                 <TextBlock Text="{Binding GuidedHeadline}" TextWrapping="Wrap"/>
+                <TextBlock Foreground="#A9B1BA" Text="{DynamicResource Guided.SafetyHistoryHint}" TextWrapping="Wrap" FontSize="11"/>
+                <TextBlock Foreground="#D8B46A" Text="{Binding GuidedVerificationLabel}" TextWrapping="Wrap"/>
                 <TextBlock Classes="section" Margin="0" Text="{DynamicResource Guided.BoardTitle}"/>
-                <ItemsControl ItemsSource="{Binding GuidedBoards}">
+                <ItemsControl ItemsSource="{Binding GuidedBoards}" IsEnabled="{Binding CanEditGuidedSelection}">
                   <ItemsControl.ItemTemplate>
                     <DataTemplate>
                       <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12" Margin="0,3">
@@ -444,26 +482,36 @@
                   </ItemsControl.ItemTemplate>
                 </ItemsControl>
                 <TextBlock Classes="section" Margin="0" Text="{DynamicResource Guided.KeyTitle}"/>
-                <ItemsControl ItemsSource="{Binding GuidedKeys}">
+                <ItemsControl ItemsSource="{Binding GuidedKeys}" IsEnabled="{Binding CanEditGuidedSelection}">
                   <ItemsControl.ItemTemplate>
                     <DataTemplate>
                       <Grid ColumnDefinitions="Auto,76,*,Auto" ColumnSpacing="10" Margin="0,2">
                         <CheckBox IsChecked="{Binding Adopt}" Content="{Binding Label}"/>
                         <TextBlock Grid.Column="1" Foreground="#7F8A95" FontSize="11" VerticalAlignment="Center" Text="{Binding DepthLabel}"/>
-                        <TextBlock Grid.Column="2" Foreground="#A9B1BA" FontSize="11" VerticalAlignment="Center" TextWrapping="Wrap" Text="{Binding Detail}"/>
+                        <StackPanel Grid.Column="2" Spacing="3" VerticalAlignment="Center">
+                          <TextBlock Foreground="#A9B1BA" FontSize="11" TextWrapping="Wrap" Text="{Binding Detail}"/>
+                          <TextBlock Foreground="#A9B1BA" FontSize="11" TextWrapping="Wrap" Text="{Binding SafetyDetail}"/>
+                        </StackPanel>
                         <TextBlock Grid.Column="3" FontSize="11" VerticalAlignment="Center" Text="{Binding StatusLabel}"/>
                       </Grid>
                     </DataTemplate>
                   </ItemsControl.ItemTemplate>
                 </ItemsControl>
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                  <Button Classes="primary" Command="{Binding ApplyGuidedResultCommand}" Content="{DynamicResource Guided.ApplyToEditor}"/>
-                  <Button Command="{Binding DiscardGuidedResultCommand}" Content="{DynamicResource Guided.Discard}"/>
-                </StackPanel>
+                <WrapPanel>
+                  <Button Margin="0,0,8,8" Classes="primary" Command="{Binding VerifyGuidedCommand}" Content="{DynamicResource Guided.Verify}"/>
+                  <Button Margin="0,0,8,8" Command="{Binding RetryGuidedCommand}" Content="{DynamicResource Guided.Retry}"/>
+                  <Button Margin="0,0,8,8" Command="{Binding ApplyGuidedResultCommand}" Content="{DynamicResource Guided.ApplyToEditor}"/>
+                  <Button Margin="0,0,8,8" Command="{Binding DiscardGuidedResultCommand}" Content="{DynamicResource Guided.Discard}"/>
+                </WrapPanel>
               </StackPanel>
             </StackPanel>
           </Border>
         </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+      <TabItem Header="{DynamicResource Chart.Tab}">
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+          <Border Classes="panel" Margin="8"><controls:SignalChartPanel DataContext="{Binding SignalChart}"/></Border>
         </ScrollViewer>
       </TabItem>
       <TabItem Header="{DynamicResource Tab.Telemetry}">
