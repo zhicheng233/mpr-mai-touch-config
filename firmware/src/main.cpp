@@ -16,6 +16,7 @@ constexpr uint8_t ChannelCount = touchmap::ChannelCount;
 }
 
 #include "calibration.h"
+#include "compensation.h"
 #include "config.h"
 #include "eeprom_store.h"
 #include "firmware_state.h"
@@ -27,7 +28,7 @@ constexpr uint8_t ChannelCount = touchmap::ChannelCount;
 namespace {
 
 enum class FirmwareMode : uint8_t { GAME = 0, CONFIG_IDLE = 1, STREAMING = 2, CALIBRATING = 3 };
-constexpr uint16_t RuntimeFrameLength = firmware_state::DebugPayloadLength + 10;
+constexpr uint16_t RuntimeFrameLength = firmware_state::ExtendedDebugPayloadLength + 10;
 
 #if defined(ARDUINO_ARCH_SAMD)
 // 每个槽一块独立、256 字节对齐的 flash 区域，互不重叠，擦写互不影响。
@@ -113,6 +114,9 @@ bool persisted = false;
 uint8_t activeSlot = 0;
 bool conditioning = true;
 TouchState touchState;
+Compensation compensation;
+uint32_t compensationSamples[touchmap::KeyCount] = {};
+uint8_t compensationCursor = 0;
 uint8_t frameBuffer[RuntimeFrameLength] = {};
 uint8_t responseCache[RuntimeFrameLength] = {};
 uint16_t responseCacheLength = 0;
@@ -216,6 +220,7 @@ void clearSession() {
   calibration.cancel();
   staged = applied;
   touchState.reset();
+  compensation.reset();
 }
 
 bool prepareRequest(const protocol::Frame& frame) {
@@ -242,6 +247,8 @@ bool prepareRequest(const protocol::Frame& frame) {
 }
 
 void handleLegacy(const uint8_t command[protocol::LegacyCommandLength]) {
+  if (command[3] == protocol::LegacyReset || command[3] == protocol::LegacyHalt ||
+      command[3] == protocol::LegacyStart) compensation.reset();
   switch (command[3]) {
     case protocol::LegacyReset:
       mpr.resetAll();
@@ -343,7 +350,7 @@ void handleFrame(const protocol::Frame& frame) {
       return;
     }
     case protocol::TypeSetConfig: {
-      if (frame.length != config::BlobLength) {
+      if (frame.length != config::BlobLength && frame.length != config::LegacyBlobLength) {
         sendError(frame.type, frame.sequence, protocol::StatusBadLength);
         return;
       }
@@ -380,6 +387,7 @@ void handleFrame(const protocol::Frame& frame) {
         return;
       }
       applied = staged;
+      compensation.reset();
       staged = applied;
       conditioning = false;
       sendAck(frame.type, frame.sequence);
@@ -424,6 +432,7 @@ void handleFrame(const protocol::Frame& frame) {
         return;
       }
       streamRate = accepted;
+      compensation.reset();
       nextStreamFrame = currentTime;
       mode = FirmwareMode::STREAMING;
       uint8_t rates[4] = {static_cast<uint8_t>(accepted), static_cast<uint8_t>(accepted >> 8),
@@ -441,29 +450,64 @@ void handleFrame(const protocol::Frame& frame) {
   }
 }
 
+void sampleCompensation() {
+#ifdef ARDUINO
+  if (conditioning || applied.compensationMode == 0) return;
+  // Bounded work: at most one selected electrode read per loop. Never scan all 48.
+  for (uint8_t i = 0; i < touchmap::KeyCount; ++i) {
+    const uint8_t key = compensationCursor;
+    compensationCursor = (compensationCursor + 1) % touchmap::KeyCount;
+    if (!config::compensationSelected(applied, key) || currentTime - compensationSamples[key] < 8) continue;
+    compensationSamples[key] = currentTime;
+    const uint8_t board = touchmap::UnpackBoard(applied.keyMap[key]);
+    const uint8_t channel = touchmap::UnpackChannel(applied.keyMap[key]);
+    uint16_t filtered = 0, baseline = 0;
+    uint16_t hardwareBits = 0;
+    const bool valid = mpr.readSignal(board, channel, &filtered, &baseline) && mpr.readTouchStatus(board, &hardwareBits);
+    const bool hw = (hardwareBits & (1U << channel)) != 0;
+    compensation.observe(key, millis(), hw, filtered, baseline, valid, applied);
+    break;
+  }
+#endif
+}
+
+void finalKeys(const uint16_t touched[touchmap::BoardCount], bool keys[touchmap::KeyCount]) {
+  touchState.applyHardware(applied, touched);
+  for (uint8_t key = 0; key < touchmap::KeyCount; ++key)
+    keys[key] = compensation.output(key, touchState.keys()[key], applied);
+}
+
 void loopGame() {
 #ifdef ARDUINO
   if (conditioning) return;
   uint16_t touched[touchmap::BoardCount] = {};
   for (uint8_t board = 0; board < touchmap::BoardCount; ++board) touched[board] = mpr.touched(board);
-  touchState.applyHardware(applied, touched);
+  bool keys[touchmap::KeyCount] = {};
+  finalKeys(touched, keys);
   uint8_t output[protocol::LegacyFrameLength];
-  protocol::encodeLegacyGameFrame(touchState.keys(), output);
+  protocol::encodeLegacyGameFrame(keys, output);
   Serial.write(output, sizeof(output));
 #endif
 }
 
 void sendDebugFrame(uint32_t nowMs) {
-  uint8_t payload[firmware_state::DebugPayloadLength] = {};
+  uint8_t payload[firmware_state::ExtendedDebugPayloadLength] = {};
   uint16_t filtered[48] = {};
   uint16_t baseline[48] = {};
   uint8_t status[4] = {};
   uint16_t touched[touchmap::BoardCount] = {};
   for (uint8_t board = 0; board < touchmap::BoardCount; ++board) touched[board] = mpr.touched(board);
   mpr.snapshot(filtered, baseline, status);
-  touchState.applyHardware(applied, touched);
-  firmware_state::encodeDebugPayload(nowMs, touchState.keys(), filtered, baseline, status,
+  bool keys[touchmap::KeyCount] = {};
+  finalKeys(touched, keys);
+  firmware_state::encodeDebugPayload(nowMs, keys, filtered, baseline, status,
                                      mpr.i2cErrors(), payload, sizeof(payload));
+  // 207..211 hardware bits; 212..245 candidate thresholds /4; 246..250 active bits.
+  for (uint8_t key = 0; key < touchmap::KeyCount; ++key) {
+    if (touchState.keys()[key]) payload[207 + key / 8] |= 1U << (key % 8);
+    payload[212 + key] = compensation.threshold(key);
+    if (compensation.active(key, applied)) payload[246 + key / 8] |= 1U << (key % 8);
+  }
   sendFrame(protocol::TypeDebugFrame, 0, payload, sizeof(payload));
 }
 
@@ -522,6 +566,7 @@ void loop() {
       }
     }
   }
+  if (!bootCalibration && (mode == FirmwareMode::GAME || mode == FirmwareMode::STREAMING)) sampleCompensation();
   if (mode == FirmwareMode::GAME && !bootCalibration) loopGame();
   if (mode == FirmwareMode::STREAMING && currentTime >= nextStreamFrame) {
     sendDebugFrame(currentTime);
@@ -578,6 +623,7 @@ void loop() {
       }
     }
     calibration.cancel();
+    compensation.reset();
     if (bootCalibration) {
       bootCalibration = false;
     } else {

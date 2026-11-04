@@ -41,6 +41,8 @@ class Mpr121Hardware {
   uint16_t baseline(uint8_t board, uint8_t channel) const;
   // 读 MPR121 硬件触摸状态寄存器（TOUCHSTATUS，0x00-0x01），返回 12 位（每 bit 一通道）。
   uint16_t touched(uint8_t board) const;
+  bool readSignal(uint8_t board, uint8_t channel, uint16_t* filteredValue, uint16_t* baselineValue);
+  bool readTouchStatus(uint8_t board, uint16_t* touchedValue);
   void snapshot(uint16_t filteredValues[touchmap::ChannelCount],
                 uint16_t baselineValues[touchmap::ChannelCount],
                 uint8_t status[touchmap::BoardCount]);

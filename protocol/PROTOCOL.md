@@ -1,6 +1,6 @@
 # maimai Touch Controller Protocol
 
-Status: Phase 0 contract, protocol version 1.1. This document is the byte-level
+Status: protocol version 1.2. This document is the byte-level
 source of truth for the firmware and the desktop tool. The USB CDC serial port
 is single-owner: the game and the tool must not use it at the same time.
 
@@ -8,12 +8,19 @@ Protocol 1.1 adds the configurable key mapping (config schema 2, 93-byte
 config blob). It is backward compatible for the legacy game output; the tool
 requires the version-1.1 capability bit described in section 5.2.
 
+Protocol 1.2 adds opt-in experimental anti-stuck compensation (capability bit 5,
+config schema 3, 99-byte blob, 251-byte telemetry). Firmware accepts schema-2
+SET_CFG and migrates valid schema-2 storage records with compensation off.
+The updated tool supports both firmware generations; feature controls require bit 5.
+Legacy game framing and key bit order are unchanged. Old tools must be upgraded
+before connecting to firmware that returns the extended config/telemetry.
+
 ## 1. Conventions
 
 - A byte is written as `0xNN`. Byte offsets are zero-based.
 - All multi-byte integers are little-endian unless a field says otherwise.
 - `u8`, `i8`, `u16`, `u32` are unsigned/signed integers of exactly that width.
-- The protocol version is `major=1`, `minor=1` for this contract. A device must
+- The protocol version is `major=1`, `minor=2` for this contract. A device must
   reject a frame with an unsupported major version. A newer minor version is
   accepted only when the type and payload length are known; unknown fields are
   not implicitly accepted.
@@ -30,7 +37,7 @@ Every new-protocol frame has this layout:
 |---:|---:|---|---|
 | 0 | 1 | sync0 | `0xAA` |
 | 1 | 1 | sync1 | `0x55` |
-| 2 | 1 | version | `0x11` for protocol 1.1 (`major << 4 | minor`) |
+| 2 | 1 | version | `0x12` for protocol 1.2 (`major << 4 | minor`); accepts 1.x known frames |
 | 3 | 1 | type | Request, response, event, or debug type |
 | 4 | 2 | seq | Little-endian request sequence number |
 | 6 | 2 | len | Little-endian payload length, `0..256` |
@@ -258,7 +265,7 @@ events also copy the originating request sequence in their frame header.
 | `0x02` | tool -> firmware | ENTER_CFG | 0 bytes |
 | `0x03` | tool -> firmware | EXIT_CFG | 0 bytes |
 | `0x10` | tool -> firmware | GET_CFG | 0 bytes |
-| `0x11` | tool -> firmware | SET_CFG | 93-byte config blob |
+| `0x11` | tool -> firmware | SET_CFG | 99-byte config blob (also accepts legacy 93-byte schema 2) |
 | `0x12` | tool -> firmware | SAVE_CFG | 0 bytes |
 | `0x13` | tool -> firmware | APPLY_CFG | 0 bytes |
 | `0x20` | tool -> firmware | CALIBRATE | 3 bytes |
@@ -267,7 +274,7 @@ events also copy the originating request sequence in their frame header.
 | `0x21` | firmware -> tool | CAL_DONE | asynchronous event |
 | `0x7F` | firmware -> tool | ERROR | error payload |
 | `0x80` | firmware -> tool | ACK | acknowledgement payload |
-| `0x90` | firmware -> tool | DEBUG_FRAME | fixed 207-byte payload |
+| `0x90` | firmware -> tool | DEBUG_FRAME | 251 bytes (legacy 207) |
 
 STREAM_START's two-byte request payload is `requested_rate_hz:u16`,
 little-endian. `0` requests the default of 100 Hz. Nonzero values request that
@@ -288,7 +295,7 @@ Every ACK payload is exactly:
 `ENTER_CFG`, `EXIT_CFG`, `SET_CFG`, `APPLY_CFG`, `SAVE_CFG`, and
 `STREAM_STOP` have no operation-specific result, so their ACK length is 4.
 `VERSION` uses response type ACK with the VERSION result below. `GET_CFG` uses
-an ACK whose result is the 93-byte config blob. `STREAM_START` result is
+an ACK whose result is the 99-byte config blob (93 on legacy firmware). `STREAM_START` result is
 `accepted_rate_hz:u16` then `actual_rate_hz:u16` (both little-endian), for an
 ACK length of 8. `CALIBRATE` result is `calibration_deadline_ms:u32`
 (little-endian), for an ACK length of 8; it is followed by `CAL_DONE`.
@@ -299,13 +306,13 @@ For implementation and codec tests, the complete response payload lengths are:
 |---|---:|---:|
 | VERSION | `0x80` | 20 (`4 + 16`) |
 | ENTER_CFG, EXIT_CFG, SET_CFG, APPLY_CFG, SAVE_CFG, STREAM_STOP | `0x80` | 4 |
-| GET_CFG | `0x80` | 97 (`4 + 93`) |
+| GET_CFG | `0x80` | 103 (`4 + 99`), legacy 97 |
 | CALIBRATE | `0x80` | 8 (`4 + 4`) |
 | STREAM_START | `0x80` | 8 (`4 + 4`) |
 | Any error | `0x7F` | 4 |
 | CAL_DONE success | `0x21` | 196 |
 | CAL_DONE failure | `0x21` | 4 or 5+2*count |
-| DEBUG_FRAME | `0x90` | 207 |
+| DEBUG_FRAME | `0x90` | 251, legacy 207 |
 
 ### 5.2 VERSION result
 
@@ -314,7 +321,7 @@ The VERSION request is empty. Its ACK result is exactly 16 bytes:
 | Offset in result | Size | Field |
 |---:|---:|---|
 | 0 | 1 | protocol major (`1`) |
-| 1 | 1 | protocol minor (`1`) |
+| 1 | 1 | protocol minor (`2`) |
 | 2 | 1 | firmware major |
 | 3 | 1 | firmware minor |
 | 4 | 1 | firmware patch |
@@ -348,20 +355,28 @@ the configurable key mapping: config schema 2, the 93-byte config blob, and
 `SET_CFG` accepting 93-byte payloads. A tool that needs mapping must clear
 bit 4 and refuse to connect with a clear "firmware too old" message rather than
 send a 93-byte `SET_CFG` that an older firmware would reject with
-`ERROR(BAD_LENGTH)`. Bits 5..31 remain zero. Because the mapping only changes
+`ERROR(BAD_LENGTH)`. Protocol 1.2 adds bit 5 (`0x20`): experimental compensation,
+schema 3 and extended telemetry. Bits 6..31 remain zero. Because the mapping only changes
 how the game output is assembled, a device that reports bit 4 set is still
 bit-for-bit compatible with the legacy game protocol in section 4.
 
 ### 5.3 Configuration blob and semantics
 
-The 93-byte config blob used by SET_CFG and GET_CFG is:
+The 99-byte config blob used by SET_CFG and GET_CFG is:
 
 | Offset | Size | Field |
 |---:|---:|---|
-| 0 | 1 | config schema (`2`) |
+| 0 | 1 | config schema (`3`) |
 | 1 | 24 | `board[4]`, six bytes each |
 | 25 | 34 | `electrode[34]`, one signed byte each |
 | 59 | 34 | `keymap[34]`, one packed byte each |
+| 93 | 1 | `compensation_mode`: 0 off, 1 observe only, 2 compensate |
+| 94 | 5 | `compensation_keys`: little-endian 34-key mask, key i = bit i; high 6 bits MUST be zero |
+
+Defaults: mode 0, key mask zero. The key mask follows key names, not channels.
+Only mode and mask are persisted; learned thresholds/evidence are RAM-only.
+Schema 2 is exactly the first 93 bytes with byte 0 = 2, and migrates to schema 3
+with the six extension bytes zero. Other lengths/schema combinations are invalid.
 
 Each board record is:
 
@@ -387,10 +402,10 @@ wiring in section 8, so a device that has never been reconfigured produces the
 golden vectors in section 8 byte-for-byte. `electrode[i]` and `keymap[i]` are
 paired: the per-key offset applies to whichever channel `keymap[i]` selects.
 
-An implementation must reject a config schema other than 2, any out-of-range
+An implementation must reject a config schema other than 2/3, any out-of-range
 field, and any `keymap` in which a `board`/`channel` pair is invalid or the 34
 entries are not all distinct (each channel can belong to only one key). Across
-schema 2, all 48 channels are still sampled, but only the 34 channels named by
+both schemas, all 48 channels are still sampled for telemetry, but only the 34 channels named by
 `keymap` are eligible for game bits; the remaining channels have no electrode
 config byte and use board values plus offset zero. Rejection leaves staged,
 applied, and persisted configurations unchanged. Final threshold arithmetic is
@@ -495,17 +510,25 @@ key use board settings with zero electrode offset.
 
 ### 5.5 Debug stream
 
-DEBUG_FRAME type `0x90` has a fixed payload length of 207 bytes. The exact
-layout is:
+DEBUG_FRAME type `0x90` has a payload length of 251 bytes on capability-bit-5
+firmware, otherwise 207. The common prefix is:
 
 | Offset | Size | Field |
 |---:|---:|---|
 | 0 | 4 | `timestamp_ms:u32`, little-endian, device `millis()` modulo 2^32 |
-| 4 | 5 | `touch:34bit-packed`, same order/rule as section 4.1; top 6 bits zero |
+| 4 | 5 | final game-output `touch:34bit-packed`, same order/rule as section 4.1; top 6 bits zero |
 | 9 | 96 | `filtered[48]:u16`, little-endian |
 | 105 | 96 | `baseline[48]:u16`, little-endian |
 | 201 | 4 | `chip_status[4]:u8` |
 | 205 | 2 | `i2c_errors:u16`, little-endian, cumulative saturating count |
+| 207 | 5 | raw hardware touch bits, key-indexed like final output |
+| 212 | 34 | candidate touch thresholds in units of 4 counts; zero = no candidate |
+| 246 | 5 | active compensation key bits; observe mode always zero |
+
+Extension length: `207 + 5 + 34 + 5 = 251 <= 256`. Candidate thresholds are
+reported in both observe and compensate modes. An active key uses candidate*4
+for touch and candidate*4-4 for release. Inactive keys retain hardware detection.
+Host calibration/verification must use hardware bits, not corrected output.
 
 Thus `4 + 5 + 96 + 96 + 4 + 2 = 207`, which is below `MAX_PAYLOAD=256`.
 Filtered and baseline arrays use the same 48-channel order as CAL_DONE. Each
@@ -523,6 +546,41 @@ used by the legacy seven chunks: byte 0 contains value bits 0..7, byte 1 bits
 bit for key `i` is `i` as defined in section 4.1. For example, A1 is
 `01 00 00 00 00`, E8 is `00 00 00 00 02`, and all 34 keys are
 `FF FF FF FF 03`.
+
+#### 5.5.1 Experimental compensation behavior (firmware 0.3.0)
+
+This is a heuristic, not proof of physical release. A long hold with rapid changes
+in contact area can still resemble separate touches. Default off.
+It never changes MPR121 registers, baseline tracking or flash at runtime.
+
+- Only selected keys are sampled, at a target interval of 8 ms each, with at most
+  one electrode read per main-loop iteration. Many selected keys or blocking USB
+  writes reduce the actual rate. A >40 ms sample gap, I2C failure, invalid signal,
+  or baseline movement >4 counts discards all evidence/correction for that key.
+- Require continuous hardware touch >=800 ms and a stable elevated platform >=200 ms.
+  A pulse requires sharp rise/fall (>=8 counts per <=32 ms), excursion >=24 counts,
+  first return within 24..220 ms, and a further stable return >=180 ms (span <=4).
+  A single-sample spike or broad hold does not qualify.
+- Require two matching returns (platform difference <=4 counts), within 10 seconds.
+  Candidate = ceil((maximum return platform + 12)/4)*4. Candidate release is
+  candidate-4, leaving >=8 counts above the observed return platform. Candidate
+  must remain <= weakest observed peak-12, <= original+64, <= original*3 and <=1020.
+  Otherwise no correction is authorized. Learned values are never stacked.
+- Observe mode never changes output. Compensate mode uses fixed software hysteresis
+  and board debounce+1 consecutive samples, at this slower raw sampling cadence.
+  Ordinary subsequent releases do not wait for platform settling. ESI/SFI registers
+  remain unchanged. Peak processing cannot recover inputs already lost to a stuck bit.
+- Return below the original release floor for >=600 ms removes correction. Reset,
+  apply, stream restart, calibration completion and session exit clear learning.
+  No held-too-long timeout forces release; no baseline is reset during a hold.
+- Pink chart band = hardware; cyan = final output. Cyan threshold = candidate.
+  A candidate without active bits is observe-only. Lack of a candidate can mean
+  off/learning/invalid sampling/insufficient margin; it is not a physical diagnosis.
+
+Risks: false release during a real hold, missed weak touches, sampling overhead,
+slower transitions on corrected keys, and delayed first recovery. Validate long holds,
+fast area changes, slides, light taps, repeated taps and simultaneous keys on hardware
+before enabling output correction. Host tests cannot establish gameplay safety.
 
 ## 6. Errors and timeouts
 
@@ -568,20 +626,20 @@ slot 1 at address 128. A slot is never a direct C struct dump. The record is:
 | 0 | 2 | magic `0x4D41`, little-endian (`41 4D`) |
 | 2 | 1 | storage schema `1` |
 | 3 | 1 | committed marker `0xA5` |
-| 4 | 2 | record length, little-endian; `103` bytes through the config blob |
+| 4 | 2 | record length, little-endian; `109` bytes through the config blob |
 | 6 | 4 | monotonically increasing generation, little-endian |
-| 10 | 93 | config blob from section 5.3 |
-| 103 | 2 | CRC-16/CCITT over offsets 0..2 and 4..102, little-endian; commit marker excluded |
-| 105..127 | 23 | reserved, written `0xFF`, ignored |
+| 10 | 99 | config blob from section 5.3 |
+| 109 | 2 | CRC-16/CCITT over offsets 0..2 and 4..108, little-endian; commit marker excluded |
+| 111..127 | 17 | reserved, written `0xFF`, ignored |
 
-The record length is 103 because it covers the ten-byte prefix through the
-93-byte config blob: `2 + 1 + 1 + 2 + 4 + 93 = 103`, followed by two CRC bytes.
+The record length is 109 because it covers the ten-byte prefix through the
+99-byte config blob: `2 + 1 + 1 + 2 + 4 + 99 = 109`, followed by two CRC bytes.
 The commit marker is excluded from the CRC because it is written last. A slot
 is valid only when magic, schema, committed marker, exact length, config
 schema/ranges (including the key-map uniqueness rule), and CRC all validate. A
-record whose length is not 103 (for example a 69-byte schema-1 record written by
-older firmware) is invalid; the firmware then loads RAM defaults and reports the
-persisted configuration as absent rather than migrating in place. The newest
+valid schema-2 record (length 103, CRC at 103..104 covering 0..2 and 4..102) is
+also accepted and migrated in RAM with compensation off; it is not rewritten until
+explicit SAVE_CFG. Other lengths (e.g. schema-1 length 69) are invalid. The newest
 valid generation wins; equal generations prefer slot 0.
 Blank/corrupt/incompatible EEPROM causes RAM defaults to load and does not write
 EEPROM automatically.
@@ -606,8 +664,8 @@ object: its `commit()` erases and rewrites the whole region, and a power cut
 during that window destroys both slots at once — exactly the "掉数据" failure
 that this layout fixes.
 
-The tool's JSON mirror stores the same schema-2 config fields (including the
-34-entry `keymap`), the device identity rules from VERSION, and a
+The tool's JSON mirror stores the same schema-3 config fields (including the
+34-entry `keymap`, compensation mode and mask), the device identity rules from VERSION, and a
 dirty/applied/persisted status. On first connection, device EEPROM is
 authoritative: the tool reads GET_CFG and creates or updates the JSON mirror
 after readback. A user import is staged, then must pass SET_CFG, APPLY_CFG, and

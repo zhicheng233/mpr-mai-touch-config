@@ -1,8 +1,14 @@
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
+
+// Never show a modal Windows CRT assert dialog (and keep checks enabled in Release).
+#undef assert
+#define assert(condition) do { if (!(condition)) { fprintf(stderr, "%s:%d: %s\n", __FILE__, __LINE__, #condition); exit(1); } } while (0)
 
 #include "../src/config.h"
+#include "../src/compensation.h"
 #include "../src/calibration.h"
 #include "../src/eeprom_store.h"
 #include "../src/firmware_state.h"
@@ -395,7 +401,112 @@ static void checkTouchStateBoundaries() {
   assert(!state.keys()[0]);
 }
 
+static void checkCompensation() {
+  config::Config cfg = config::defaults();
+  const uint8_t key = 33;
+  const uint8_t board = touchmap::UnpackBoard(cfg.keyMap[key]);
+  cfg.boards[board].baseThreshold = 28;
+  cfg.electrodeOffsets[key] = 0;
+  cfg.compensationMode = 2;
+  cfg.compensationKeys[4] = 2;
+  uint32_t now = 0;
+  Compensation detector;
+  auto feed = [&](int drop, int duration, bool hw = true) {
+    for (int i = 0; i < duration; i += 8) {
+      now += 8;
+      detector.observe(key, now, hw, 720 - drop, 720, true, cfg);
+    }
+  };
+  auto pulse = [&](int peak) {
+    feed(peak, 16); feed(peak - 8, 8); feed(41, 440);
+  };
+  feed(41, 1200);
+  assert(detector.threshold(key) == 0 && detector.output(key, true, cfg));
+  pulse(80);
+  assert(detector.threshold(key) == 0);  // One cycle never suffices.
+  pulse(72);
+  assert(detector.threshold(key) == 14);  // absolute 56, release 52
+  assert(!detector.output(key, true, cfg));
+  feed(72, 32);
+  assert(detector.output(key, true, cfg));
+  feed(41, 32);
+  assert(!detector.output(key, true, cfg));  // no slow settling on subsequent releases
+  cfg.compensationMode = 1;
+  assert(detector.output(key, true, cfg));  // Observe never overrides hardware.
+  cfg.compensationMode = 0;
+  assert(detector.output(key, true, cfg));
+  cfg.compensationMode = 2;
+  feed(0, 640, false);
+  assert(detector.threshold(key) == 0);  // Original idle recovered.
+  detector.reset();
+  feed(41, 1200); pulse(65); pulse(65);
+  assert(detector.threshold(key) == 0);  // Not enough weak-touch margin.
+  detector.reset();
+  feed(41, 1200); feed(110, 400); feed(41, 500); feed(110, 400); feed(41, 500);
+  assert(detector.threshold(key) == 0);  // Broad holds cannot authorize compensation.
+  detector.reset();
+  feed(41, 1200); feed(110, 8); feed(41, 500); feed(110, 8); feed(41, 500);
+  assert(detector.threshold(key) == 0);  // Single-sample spikes are not full pulses.
+  detector.reset();
+  feed(41, 1200); pulse(80); pulse(80);
+  assert(detector.threshold(key) != 0);
+  now += 80; feed(41, 8);
+  assert(detector.threshold(key) == 0 && detector.output(key, true, cfg));
+  now = 0xFFFFFC00UL;
+  detector.reset(); feed(41, 1200); pulse(80); pulse(80);
+  assert(detector.threshold(key) == 14);  // millis wrap is harmless.
+  detector.observe(key, now + 8, true, 679, 720, false, cfg);
+  assert(detector.threshold(key) == 0);
+  detector.reset(); feed(41, 1200); pulse(80); pulse(80);
+  detector.observe(key, now + 8, true, 687, 728, true, cfg);
+  assert(detector.threshold(key) == 0);  // Moving baseline invalidates old evidence.
+  detector.reset(); feed(41, 1200); pulse(80); feed(41, 11000); pulse(80);
+  assert(detector.threshold(key) == 0);  // Old isolated evidence expires.
+  detector.reset(); feed(160, 1200);
+  feed(240, 16); feed(220, 8); feed(160, 440);
+  feed(240, 16); feed(220, 8); feed(160, 440);
+  assert(detector.threshold(key) == 0);  // Never exceed the absolute lift ceiling.
+  detector.reset(); feed(41, 1200);
+  for (int repeat = 0; repeat < 3; ++repeat) {
+    for (int drop = 41; drop <= 90; drop += 2) feed(drop, 8);
+    for (int drop = 90; drop >= 42; drop -= 2) feed(drop, 8);
+    feed(41, 500);
+  }
+  assert(detector.threshold(key) == 0);  // Slow area changes are not sharp pulses.
+  cfg.compensationKeys[4] = 0;
+  detector.reset(); feed(41, 1200); pulse(80); pulse(80);
+  assert(detector.threshold(key) == 0 && detector.output(key, true, cfg));
+  cfg.compensationKeys[4] = 2;
+
+  // Schema 2 and its CRC-protected dual-slot records migrate without losing mapping.
+  uint8_t blob[config::BlobLength] = {};
+  assert(config::serialize(cfg, blob, sizeof(blob)));
+  blob[0] = 2;
+  config::Config migrated;
+  assert(config::deserialize(blob, 93, &migrated));
+  assert(migrated.compensationMode == 0 && migrated.keyMap[key] == cfg.keyMap[key]);
+  MemoryEeprom memory;
+  uint8_t* record = memory.bytes;
+  record[0] = 0x41; record[1] = 0x4D; record[2] = 1; record[3] = 0xA5;
+  record[4] = 103; record[5] = 0; record[6] = 7; record[7] = record[8] = record[9] = 0;
+  memcpy(record + 10, blob, 93);
+  uint8_t crcInput[102];
+  memcpy(crcInput, record, 3); memcpy(crcInput + 3, record + 4, 99);
+  const uint16_t crc = protocol::crc16Ccitt(crcInput, sizeof(crcInput));
+  record[103] = crc; record[104] = crc >> 8;
+  uint32_t gen; bool persisted;
+  assert(eeprom_store::load(memory, &migrated, &gen, &persisted));
+  assert(persisted && gen == 7 && migrated.compensationMode == 0);
+  assert(eeprom_store::save(memory, cfg, 8, 1));
+  assert(eeprom_store::load(memory, &migrated, &gen, &persisted));
+  assert(persisted && gen == 8 && migrated.compensationMode == 2 && migrated.compensationKeys[4] == 2);
+  memory.bytes[128 + eeprom_store::RecordLength] ^= 1;
+  assert(eeprom_store::load(memory, &migrated, &gen, &persisted));
+  assert(persisted && gen == 7);  // Failed new save retains valid old schema slot.
+}
+
 int main() {
+  checkCompensation();
   const uint8_t crcInput[] = "123456789";
   assert(protocol::crc16Ccitt(crcInput, 9) == 0x29B1);
   uint8_t frame[protocol::MaxFrameLength] = {};
@@ -474,14 +585,14 @@ int main() {
   config::Config value = config::defaults();
   uint8_t blob[config::BlobLength] = {};
   assert(config::serialize(value, blob, sizeof(blob)));
-  assert(sizeof(blob) == 93 && blob[0] == config::Schema);
+  assert(sizeof(blob) == 99 && blob[0] == config::Schema);
   config::Config roundTrip = {};
   assert(config::deserialize(blob, sizeof(blob), &roundTrip));
   assert(roundTrip.boards[0].baseThreshold == 20);
   for (uint8_t key = 0; key < touchmap::KeyCount; ++key) {
     assert(roundTrip.keyMap[key] == touchmap::DefaultKeyMap[key]);
   }
-  blob[0] = 3;
+  blob[0] = 4;
   assert(!config::deserialize(blob, sizeof(blob), &roundTrip));
   blob[0] = config::Schema;
   blob[1 + 1] = 0x80;
@@ -587,7 +698,7 @@ int main() {
   assert(persisted && generation == 1 && loaded.boards[0].baseThreshold == 20);
   assert(activeSlot == 0);
   assert(eeprom_store::RecordLength + 2 <= eeprom_store::SlotSize);
-  assert(eeprom_store::ReservedStart == 105);
+  assert(eeprom_store::ReservedStart == 111);
   assert(memory.bytes[eeprom_store::SlotSize - 1] == 0xFF);
 
   assert(eeprom_store::save(memory, value, 2, 1));

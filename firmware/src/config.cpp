@@ -40,6 +40,7 @@ Config defaults() {
 
 bool validate(const Config& value) {
   if (value.schema != Schema) return false;
+  if (value.compensationMode > 2 || (value.compensationKeys[4] & 0xFC)) return false;
   for (uint8_t board = 0; board < touchmap::BoardCount; ++board) {
     const BoardConfig& item = value.boards[board];
     if (item.baseThreshold < 1 || item.sensOffset < -127 ||
@@ -86,16 +87,19 @@ bool serialize(const Config& value, uint8_t* output, uint16_t outputCapacity) {
   for (uint8_t i = 0; i < touchmap::KeyCount; ++i) {
     output[offset++] = value.keyMap[i];
   }
+  output[offset++] = value.compensationMode;
+  for (uint8_t i = 0; i < 5; ++i) output[offset++] = value.compensationKeys[i];
   return offset == BlobLength;
 }
 
 bool deserialize(const uint8_t* input, uint16_t inputLength, Config* output) {
-  if (input == nullptr || output == nullptr || inputLength != BlobLength ||
-      input[0] != Schema) {
+  if (input == nullptr || output == nullptr ||
+      !((inputLength == BlobLength && input[0] == Schema) ||
+        (inputLength == LegacyBlobLength && input[0] == 2))) {
     return false;
   }
   Config candidate = {};
-  candidate.schema = input[0];
+  candidate.schema = Schema;
   uint16_t offset = 1;
   for (uint8_t board = 0; board < touchmap::BoardCount; ++board) {
     BoardConfig& item = candidate.boards[board];
@@ -112,7 +116,11 @@ bool deserialize(const uint8_t* input, uint16_t inputLength, Config* output) {
   for (uint8_t i = 0; i < touchmap::KeyCount; ++i) {
     candidate.keyMap[i] = input[offset++];
   }
-  if (offset != BlobLength || !validate(candidate)) return false;
+  if (inputLength == BlobLength) {
+    candidate.compensationMode = input[offset++];
+    for (uint8_t i = 0; i < 5; ++i) candidate.compensationKeys[i] = input[offset++];
+  }
+  if (offset != inputLength || !validate(candidate)) return false;
   *output = candidate;
   return true;
 }

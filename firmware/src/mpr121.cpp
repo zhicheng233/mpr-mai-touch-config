@@ -232,6 +232,39 @@ uint16_t Mpr121Hardware::baseline(uint8_t board, uint8_t channel) const {
   return 0;
 }
 
+bool Mpr121Hardware::readSignal(uint8_t board, uint8_t channel, uint16_t* f, uint16_t* b) {
+  if (board >= touchmap::BoardCount || channel >= 12 || !f || !b || !online_[board]) return false;
+#ifdef ARDUINO
+  uint8_t raw[2], base;
+  if (!readRegisters(touchmap::BoardAddresses[board], 0x04 + channel * 2, raw, 2) ||
+      !readRegisters(touchmap::BoardAddresses[board], 0x1E + channel, &base, 1)) {
+    recordI2cError(board);
+    return false;
+  }
+  *f = static_cast<uint16_t>(raw[0]) | (static_cast<uint16_t>(raw[1]) << 8);
+  *b = static_cast<uint16_t>(base) << 2;
+#else
+  *f = filtered(board, channel);
+  *b = baseline(board, channel);
+#endif
+  return *f > 0 && *f <= 1023 && *b > 0 && *b <= 1023;
+}
+
+bool Mpr121Hardware::readTouchStatus(uint8_t board, uint16_t* value) {
+  if (board >= touchmap::BoardCount || !value || !online_[board]) return false;
+#ifdef ARDUINO
+  uint8_t raw[2];
+  if (!readRegisters(touchmap::BoardAddresses[board], 0x00, raw, 2)) {
+    recordI2cError(board);
+    return false;
+  }
+  *value = static_cast<uint16_t>(raw[0]) | (static_cast<uint16_t>(raw[1]) << 8);
+#else
+  *value = 0;
+#endif
+  return true;
+}
+
 uint16_t Mpr121Hardware::touched(uint8_t board) const {
 #ifdef ARDUINO
   if (board >= touchmap::BoardCount || !online_[board]) return 0;

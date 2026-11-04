@@ -10,6 +10,7 @@ add_executable(firmware_host_tests
     test_main.cpp
     ../src/protocol.cpp
     ../src/config.cpp
+    ../src/compensation.cpp
     ../src/eeprom_store.cpp
     ../src/mpr121.cpp
     ../src/touch_state.cpp

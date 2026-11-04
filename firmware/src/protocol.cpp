@@ -68,7 +68,7 @@ bool validPayloadLength(uint8_t type, uint16_t length) {
     case TypeStreamStop:
       return length == 0;
     case TypeSetConfig:
-      return length == config::BlobLength;
+      return length == config::BlobLength || length == config::LegacyBlobLength;
     case TypeCalibrate:
       return length == 3;
     case TypeStreamStart:

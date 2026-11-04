@@ -11,12 +11,12 @@
 namespace firmware_version {
 
 constexpr uint8_t Major = 0;
-constexpr uint8_t Minor = 1;
+constexpr uint8_t Minor = 3;
 constexpr uint8_t Patch = 0;
 
 // 协议版本跟着 PROTOCOL.md 走；与固件语义版本相互独立。
 constexpr uint8_t ProtocolMajor = 1;
-constexpr uint8_t ProtocolMinor = 1;
+constexpr uint8_t ProtocolMinor = 2;
 
 }  // namespace firmware_version
 
