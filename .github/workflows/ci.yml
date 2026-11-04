@@ -87,3 +87,37 @@ jobs:
 
       - name: Test
         run: dotnet test software/MaimaiTouchTool.sln --configuration Release --no-build --logger "console;verbosity=normal"
+
+  software-linux:
+    name: Desktop tool Linux build and tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Resolve desktop tool build version
+        id: tool_version
+        run: python tools/ci_version.py tool --mode ci
+
+      - name: Set up .NET 9 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Restore
+        run: dotnet restore software/MaimaiTouchTool.sln
+
+      - name: Build
+        env:
+          BUILD_VERSION: ${{ steps.tool_version.outputs.version }}
+        run: dotnet build software/MaimaiTouchTool.sln --configuration Release --no-restore -p:Version="$BUILD_VERSION" -p:IncludeSourceRevisionInInformationalVersion=false
+
+      - name: Test
+        run: dotnet test software/MaimaiTouchTool.sln --configuration Release --no-build --logger "console;verbosity=normal"
