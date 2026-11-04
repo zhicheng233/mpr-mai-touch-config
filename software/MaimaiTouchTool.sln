@@ -7,6 +7,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MaimaiTouchTool", "MaimaiTo
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MaimaiTouchTool.Tests", "MaimaiTouchTool.Tests\MaimaiTouchTool.Tests.csproj", "{9B6D1E7A-774C-485E-B4B9-5A35CF5A0E1B}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MaimaiTouchTool.UiTests", "MaimaiTouchTool.UiTests\MaimaiTouchTool.UiTests.csproj", "{8E2576F4-C2F8-478A-A817-D70C1A6CE948}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -21,5 +23,9 @@ Global
 		{9B6D1E7A-774C-485E-B4B9-5A35CF5A0E1B}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{9B6D1E7A-774C-485E-B4B9-5A35CF5A0E1B}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{9B6D1E7A-774C-485E-B4B9-5A35CF5A0E1B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8E2576F4-C2F8-478A-A817-D70C1A6CE948}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8E2576F4-C2F8-478A-A817-D70C1A6CE948}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8E2576F4-C2F8-478A-A817-D70C1A6CE948}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8E2576F4-C2F8-478A-A817-D70C1A6CE948}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

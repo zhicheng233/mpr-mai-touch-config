@@ -119,6 +119,43 @@ public sealed class SerialIntegrationTests
     }
 
     [Fact]
+    public async Task AwaitedDebugConsumerBoundsCallbacksAndCancellationDrainsBeforeReleasingPort()
+    {
+        await using var endpoint = new FakeSerialEndpoint();
+        await using var transport = await EnterConfigAsync(endpoint);
+        using var cancellation = new CancellationTokenSource();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var count = 0;
+        var stream = transport.StreamDebugEventsAwaitedAsync(100, async _ =>
+        {
+            Interlocked.Increment(ref count);
+            entered.TrySetResult();
+            await release.Task;
+        }, _ => Task.CompletedTask, cancellation.Token);
+        try
+        {
+            await endpoint.StreamStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+            for (ushort i = 1; i <= 20; i++) endpoint.InjectDebug(i, NewDebug((uint)i * 10, 0));
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(1));
+            cancellation.Cancel();
+            Assert.False(stream.IsCompleted); // The one in-flight callback still owns the stream.
+            Assert.Equal(1, Volatile.Read(ref count));
+        }
+        finally
+        {
+            cancellation.Cancel();
+            release.TrySetResult();
+            await stream.WaitAsync(TimeSpan.FromSeconds(2));
+        }
+        Assert.Equal(1, count); // Queued frames are not delivered after cancellation.
+        Assert.False(endpoint.IsStreaming);
+        Assert.Equal(TransportState.Config, transport.State);
+        var readback = await transport.SendRequestAsync((byte)ProtocolConstants.FrameType.GetConfig, []);
+        Assert.Equal((byte)ProtocolConstants.FrameType.Ack, readback.Type);
+    }
+
+    [Fact]
     public async Task FakeEndpointRejectsMalformedFramesReplaysDuplicatesAndRejectsConflicts()
     {
         await using var endpoint = new FakeSerialEndpoint();

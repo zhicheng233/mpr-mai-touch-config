@@ -100,6 +100,29 @@ public sealed class SignalChartTests
     }
 
     [Fact]
+    public void RepeatedRendersReuseHistoryAndSelectionOrNewFramesInvalidateIt()
+    {
+        var model = new SignalChartModel();
+        var config = ConfigBlob.Defaults();
+        model.Add(Frame(0), config);
+        var first = model.Points();
+        Assert.Same(first, model.Points());
+        _ = model.CurrentValues;
+        Assert.Same(first, model.Points());
+        model.Add(Frame(30), config);
+        var next = model.Points();
+        Assert.NotSame(first, next);
+        Assert.Single(first); // Previously rendered snapshots remain immutable.
+        Assert.Equal(2, next.Count);
+        model.SelectedKeyIndex = 16;
+        Assert.NotSame(next, model.Points());
+        Assert.Contains("C1", model.CurrentValues);
+        model.Clear();
+        Assert.Empty(model.Points());
+        Assert.Equal(MaimaiTouchTool.Localization.Localizer.Instance["Chart.Empty"], model.CurrentValues);
+    }
+
+    [Fact]
     public void FreezeFollowAndClearAreDisplayOnlyOperations()
     {
         var model = new SignalChartModel();

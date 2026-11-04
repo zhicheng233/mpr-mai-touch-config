@@ -254,21 +254,29 @@ public sealed class SerialTransport(IByteStream stream) : IEventRequestClient, I
     {
         await StreamDebugEventsAsync(requestedRateHz, sample => onFrame(sample.Frame), _ => { }, cancellationToken);
     }
-    public async Task<StreamStartInfo> StreamDebugEventsAsync(ushort requestedRateHz, Action<DebugFrameEvent> onFrame, Action<Exception> onError, CancellationToken cancellationToken = default, Action<StreamStartInfo>? onStarted = null)
+    public Task<StreamStartInfo> StreamDebugEventsAsync(ushort requestedRateHz, Action<DebugFrameEvent> onFrame, Action<Exception> onError, CancellationToken cancellationToken = default, Action<StreamStartInfo>? onStarted = null)
+        => StreamDebugEventsAwaitedAsync(requestedRateHz,
+            sample => { onFrame(sample); return Task.CompletedTask; },
+            error => { onError(error); return Task.CompletedTask; }, cancellationToken,
+            info => { onStarted?.Invoke(info); return Task.CompletedTask; });
+
+    // Await the consumer: UI callbacks must not synchronously wait for their own dispatcher.
+    // At most one callback is pending, so a slow renderer cannot grow an unbounded UI queue.
+    public async Task<StreamStartInfo> StreamDebugEventsAwaitedAsync(ushort requestedRateHz, Func<DebugFrameEvent, Task> onFrame, Func<Exception, Task> onError, CancellationToken cancellationToken = default, Func<StreamStartInfo, Task>? onStarted = null)
     {
         var startPayload = new byte[2]; BinaryPrimitives.WriteUInt16LittleEndian(startPayload, requestedRateHz);
         // 整段流（含收尾的 STREAM_STOP）独占端口：否则调用方「先停流、再立刻 Apply」时，
         // 两边各开一个读循环，APPLY_CFG 的 ACK 会被 STREAM_STOP 的读循环吞掉。
-        await EnterPortAsync(cancellationToken);
+        await EnterPortAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var ackFrame = await SendRequestCoreAsync((byte)ProtocolConstants.FrameType.StreamStart, startPayload, cancellationToken, gateAlreadyHeld: true);
+            var ackFrame = await SendRequestCoreAsync((byte)ProtocolConstants.FrameType.StreamStart, startPayload, cancellationToken, gateAlreadyHeld: true).ConfigureAwait(false);
             if (ackFrame.Type == (byte)ProtocolConstants.FrameType.Error) { var e = ErrorPayload.Decode(ackFrame.Payload); throw new InvalidOperationException($"STREAM_START was rejected: {Enum.GetName((ProtocolConstants.ErrorStatus)e.Status) ?? $"status {e.Status}"}."); }
             var ack = AckPayload.Decode(ackFrame.Payload); if (ack.Status != 0) throw new InvalidOperationException($"STREAM_START was rejected: {Enum.GetName((ProtocolConstants.ErrorStatus)ack.Status) ?? $"status {ack.Status}"}.");
             var rate = StreamStartResult.Decode(ack.Result);
             if (rate.AcceptedRateHz == 0 || rate.ActualRateHz == 0) throw new FormatException("STREAM_START returned no measurable rate.");
             var startInfo = new StreamStartInfo(rate.AcceptedRateHz, rate.ActualRateHz);
-            onStarted?.Invoke(startInfo);
+            if (onStarted is not null) await onStarted(startInfo).ConfigureAwait(false);
             SetOperationState(TransportState.Streaming); var parser = new FrameParser(); var buffer = new byte[512];
             // 注意：这里不注册 abortOnUserCancel —— “停止流”是优雅停止：取消读循环后仍需在同一个（未关闭的）端口上发 STREAM_STOP。
             // ReadAsync 会在两次 ReadTimeout（≤250ms）之间检查 token，因此取消延迟很小。
@@ -276,19 +284,20 @@ public sealed class SerialTransport(IByteStream stream) : IEventRequestClient, I
             {
                 while (true)
                 {
-                    var count = await stream.ReadAsync(buffer, cancellationToken); if (cancellationToken.IsCancellationRequested) throw new OperationCanceledException(cancellationToken); if (count == 0) throw new IOException("The serial device disconnected.");
+                    var count = await stream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false); if (cancellationToken.IsCancellationRequested) throw new OperationCanceledException(cancellationToken); if (count == 0) throw new IOException("The serial device disconnected.");
                     foreach (var response in parser.Push(buffer.AsMemory(0, count), DateTimeOffset.UtcNow))
                     {
+                        cancellationToken.ThrowIfCancellationRequested();
                         if (response.Type != (byte)ProtocolConstants.FrameType.DebugFrame) continue;
-                        try { onFrame(new DebugFrameEvent(response.Sequence, DebugFrame.Decode(response.Payload), DateTimeOffset.UtcNow)); }
-                        catch (FormatException error) { onError(error); }
+                        try { await onFrame(new DebugFrameEvent(response.Sequence, DebugFrame.Decode(response.Payload), DateTimeOffset.UtcNow)).ConfigureAwait(false); }
+                        catch (FormatException error) { await onError(error).ConfigureAwait(false); }
                     }
                 }
             }
             catch (OperationCanceledException)
             {
                 SetOperationState(TransportState.Config);
-                try { await SendRequestCoreAsync((byte)ProtocolConstants.FrameType.StreamStop, [], CancellationToken.None, gateAlreadyHeld: true); } catch { }
+                try { await SendRequestCoreAsync((byte)ProtocolConstants.FrameType.StreamStop, [], CancellationToken.None, gateAlreadyHeld: true).ConfigureAwait(false); } catch { }
             }
             catch { State = TransportState.Disconnected; throw; }
             return startInfo;

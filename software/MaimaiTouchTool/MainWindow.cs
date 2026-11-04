@@ -18,10 +18,12 @@ public sealed partial class MainWindow : Window
 
     public int TouchBoardChildCount => TouchBoardCanvas.Children.Count;
 
-    public MainWindow()
+    public MainWindow() : this(new MainViewModel()) { }
+
+    public MainWindow(MainViewModel viewModel)
     {
         InitializeComponent();
-        viewModel = new MainViewModel();
+        this.viewModel = viewModel;
         DataContext = viewModel;
         viewModel.PropertyChanged += OnViewModelPropertyChanged;
         BuildTouchBoard(viewModel.TouchKeys);

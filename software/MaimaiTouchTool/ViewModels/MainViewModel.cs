@@ -40,6 +40,7 @@ public sealed partial class MainViewModel : NotifyModel, IAsyncDisposable
     private bool isBusy;
     private CancellationTokenSource? calibrationCancellation;
     private CancellationTokenSource? streamCancellation;
+    private Task? debugStreamTask;
     private CancellationTokenSource? gameCancellation;
     private long gameFrameCount;
     private double gameFrameRate;
@@ -487,11 +488,7 @@ public sealed partial class MainViewModel : NotifyModel, IAsyncDisposable
             guidedSession = null;
             await EndGuidedStreamAsync();
             if (guidedTrial is not null) await RestoreGuidedTrialAsync();
-            if (streamCancellation is not null)
-            {
-                streamCancellation.Cancel();
-                streamCancellation = null;
-            }
+            await StopStreamAsync();
             if (gameCancellation is not null)
             {
                 gameCancellation.Cancel();
@@ -911,28 +908,38 @@ public sealed partial class MainViewModel : NotifyModel, IAsyncDisposable
     {
         calibrationCancellation?.Cancel(); CalibrationLabel = Localizer.Instance["Cal.Cancelling"]; await Task.CompletedTask;
     }
-    private async Task StartStreamAsync()
+    private Task StartStreamAsync() => debugStreamTask = RunDebugStreamAsync();
+
+    private async Task RunDebugStreamAsync()
     {
         if (transport is null) { StatusMessage = Localizer.Instance["Msg.StreamUnavailable"]; return; }
-        streamCancellation = new CancellationTokenSource(); Telemetry.Begin(ProtocolConstants.DefaultStreamRateHz); RefreshCommands(); StatusMessage = Localizer.Instance["Msg.StreamStarting"];
+        using var source = new CancellationTokenSource();
+        streamCancellation = source; Telemetry.Begin(ProtocolConstants.DefaultStreamRateHz); RefreshCommands(); StatusMessage = Localizer.Instance["Msg.StreamStarting"];
         SignalChart.Clear();
         try
         {
-            var stream = await transport.StreamDebugEventsAsync(ProtocolConstants.DefaultStreamRateHz, sample =>
+            await transport.StreamDebugEventsAwaitedAsync(ProtocolConstants.DefaultStreamRateHz, async sample =>
             {
-                Dispatcher.UIThread.InvokeAsync(() =>
+                await Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                Telemetry.AddFrame(sample.Frame, sample.Sequence, sample.ReceivedAt);
-                SignalChart.Add(sample.Frame, applied);
-                for (var i = 0; i < TouchKeys.Count; i++) TouchKeys[i].IsPressed = (sample.Frame.TouchBits & (1UL << i)) != 0;
-                }).GetAwaiter().GetResult();
-            }, error => Telemetry.MarkMalformed(Localizer.Instance["Msg.MalformedFrame"] + error.Message), streamCancellation.Token, info => Telemetry.SetAcceptedRate(info.AcceptedRateHz, info.ActualRateHz));
-            Telemetry.SetAcceptedRate(stream.AcceptedRateHz, stream.ActualRateHz);
+                    if (source.IsCancellationRequested) return;
+                    Telemetry.AddFrame(sample.Frame, sample.Sequence, sample.ReceivedAt);
+                    SignalChart.Add(sample.Frame, applied);
+                    for (var i = 0; i < TouchKeys.Count; i++) TouchKeys[i].IsPressed = (sample.Frame.TouchBits & (1UL << i)) != 0;
+                }, DispatcherPriority.Background);
+            }, async error => await Dispatcher.UIThread.InvokeAsync(() => Telemetry.MarkMalformed(Localizer.Instance["Msg.MalformedFrame"] + error.Message)), source.Token,
+                async info => await Dispatcher.UIThread.InvokeAsync(() => Telemetry.SetAcceptedRate(info.AcceptedRateHz, info.ActualRateHz)));
+            Telemetry.Stop();
         }
         catch (OperationCanceledException) { Telemetry.Stop(); }
         catch (IOException ex) { await MarkTransportLostAsync(); Telemetry.MarkDisconnected(UserMessage(ex)); StatusMessage = Localizer.Instance["Msg.TelemetryStopped"] + UserMessage(ex); }
         catch (Exception ex) { if (transport?.State == TransportState.Disconnected) await MarkTransportLostAsync(); Telemetry.MarkMalformed(UserMessage(ex)); StatusMessage = Localizer.Instance["Msg.TelemetryFailed"] + UserMessage(ex); }
-        finally { streamCancellation?.Dispose(); streamCancellation = null; RefreshCommands(); }
+        finally
+        {
+            if (ReferenceEquals(streamCancellation, source)) streamCancellation = null;
+            foreach (var key in TouchKeys) key.IsPressed = false;
+            RefreshCommands();
+        }
     }
 
     // 底层传输已断开时同步 UI 状态，避免“左上角仍显示已连接、但端口其实已死”的状态不一致。
@@ -942,7 +949,11 @@ public sealed partial class MainViewModel : NotifyModel, IAsyncDisposable
         await DisconnectTransportAsync();
         Status = ConnectionStatus.Disconnected;
     }
-    private async Task StopStreamAsync() { streamCancellation?.Cancel(); await Task.CompletedTask; }
+    private async Task StopStreamAsync()
+    {
+        streamCancellation?.Cancel();
+        if (debugStreamTask is not null) await debugStreamTask;
+    }
 
     // ---- 分板引导校准：采集 → 安全范围求解 → RAM 试用 → 硬件验证 → 显式采纳 ----
     private async Task StartGuidedAsync()
@@ -969,9 +980,19 @@ public sealed partial class MainViewModel : NotifyModel, IAsyncDisposable
             string? error = null;
             try
             {
-                await transport!.StreamDebugEventsAsync(ProtocolConstants.DefaultStreamRateHz,
-                    sample => Dispatcher.UIThread.InvokeAsync(() => OnGuidedFrame(sample)).GetAwaiter().GetResult(), _ => { }, token,
-                    info => Telemetry.SetAcceptedRate(info.AcceptedRateHz, info.ActualRateHz));
+                await transport!.StreamDebugEventsAwaitedAsync(ProtocolConstants.DefaultStreamRateHz,
+                    async sample => await Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        if (!token.IsCancellationRequested && ReferenceEquals(guidedCancellation, source)) OnGuidedFrame(sample);
+                    }, DispatcherPriority.Background), _ => Task.CompletedTask, token,
+                    info =>
+                    {
+                        Dispatcher.UIThread.Post(() =>
+                        {
+                            if (ReferenceEquals(guidedCancellation, source)) Telemetry.SetAcceptedRate(info.AcceptedRateHz, info.ActualRateHz);
+                        });
+                        return Task.CompletedTask;
+                    });
             }
             catch (OperationCanceledException) { error = Localizer.Instance["Guided.NoFrames"]; }
             catch (Exception ex) { error = UserMessage(ex); }
@@ -1123,7 +1144,7 @@ public sealed partial class MainViewModel : NotifyModel, IAsyncDisposable
         }
         var measured = guidedResult.MeasuredCount;
         var failed = guidedResult.FailedCount;
-        GuidedHeadline = string.Format(Localizer.Instance["Guided.Headline"], measured, guidedResult.Keys.Count, failed, GuidedTriggerPercent);
+        GuidedHeadline = string.Format(Localizer.Instance["Guided.Headline"], measured, guidedResult.Keys.Count, failed);
         OnPropertyChanged(nameof(GuidedHeadline));
         GuidedStepLabel = Localizer.Instance["Guided.Done"];
         RefreshCommands();
@@ -1458,6 +1479,7 @@ public sealed partial class MainViewModel : NotifyModel, IAsyncDisposable
         NumericInputNotifier.InvalidNumberEntered -= OnInvalidNumericInput;
         toastCancellation?.Cancel(); toastCancellation?.Dispose(); connectCancellation?.Cancel();
         calibrationCancellation?.Cancel(); streamCancellation?.Cancel(); gameCancellation?.Cancel(); mappingCancellation?.Cancel();
+        await StopStreamAsync();
         guidedSession = null;
         await EndGuidedStreamAsync();
         if (guidedTrial is not null && IsConnected) await RestoreGuidedTrialAsync();

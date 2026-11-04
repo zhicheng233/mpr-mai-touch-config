@@ -20,6 +20,8 @@ public sealed class SignalChartModel : NotifyModel
     private sealed record Frame(ulong Time, ushort[] Filtered, ushort[] Baseline, byte[] Status,
         ulong Bits, byte[] Mapping, int[] Thresholds, ulong HardwareBits, byte[] Candidates, ulong ActiveBits);
     private readonly Queue<Frame> frames = new();
+    private Frame? latest;
+    private IReadOnlyList<SignalChartPoint>? cachedPoints;
     private uint previousTimestamp;
     private ulong time;
     private bool hasTimestamp;
@@ -44,7 +46,7 @@ public sealed class SignalChartModel : NotifyModel
     {
         get
         {
-            var point = Points().LastOrDefault();
+            var point = latest is null ? null : ToPoint(latest, null);
             return point is null ? Localizer.Instance["Chart.Empty"] : !point.Valid ? Localizer.Instance["Chart.Invalid"] :
                 string.Format(Localizer.Instance["Chart.Values"], Keys[SelectedKeyIndex], point.Filtered, point.Baseline,
                     point.Drop, point.TouchThreshold, point.ReleaseThreshold,
@@ -73,49 +75,58 @@ public sealed class SignalChartModel : NotifyModel
             var board = config.Boards[KeyMapping.BoardOf(config.Mapping[k])];
             return Math.Clamp(board.BaseThreshold + board.SensOffset + config.ElectrodeOffsets[k], 1, 1023);
         }).ToArray();
-        frames.Enqueue(new(time, (ushort[])frame.Filtered.Clone(), (ushort[])frame.Baseline.Clone(),
+        latest = new(time, (ushort[])frame.Filtered.Clone(), (ushort[])frame.Baseline.Clone(),
             (byte[])frame.ChipStatus.Clone(), frame.TouchBits, KeyMapping.Clone(config.Mapping), thresholds,
-            frame.HardwareTouchBits ?? frame.TouchBits, frame.CompensationThresholds is null ? new byte[34] : (byte[])frame.CompensationThresholds.Clone(), frame.CompensationActiveBits));
+            frame.HardwareTouchBits ?? frame.TouchBits, frame.CompensationThresholds is null ? new byte[34] : (byte[])frame.CompensationThresholds.Clone(), frame.CompensationActiveBits);
+        frames.Enqueue(latest);
         while (frames.Count > Capacity || frames.Count > 1 && time - frames.Peek().Time > WindowMs) frames.Dequeue();
         Changed();
     }
 
     public IReadOnlyList<SignalChartPoint> Points()
     {
+        if (cachedPoints is not null) return cachedPoints;
         var result = new List<SignalChartPoint>(frames.Count);
-        Frame? previous = null;
-        var previousValid = false;
+        SignalChartPoint? previous = null;
+        byte? previousMapping = null;
         foreach (var frame in frames)
         {
-            var channel = KeyMapping.ChannelIndexOf(frame.Mapping[SelectedKeyIndex]);
-            var filtered = frame.Filtered[channel];
-            var baseline = frame.Baseline[channel];
-            var valid = filtered is > 0 and <= 1023 && baseline is > 0 and <= 1023 && (frame.Status[channel / 12] & 15) == 7;
-            var threshold = frame.Thresholds[SelectedKeyIndex];
-            var candidate = frame.Candidates[SelectedKeyIndex] * 4;
-            var active = (frame.ActiveBits & (1UL << SelectedKeyIndex)) != 0;
-            var connect = previous is not null && previousValid && valid && frame.Time - previous.Time <= 250 &&
-                frame.Mapping[SelectedKeyIndex] == previous.Mapping[SelectedKeyIndex];
-            result.Add(new(frame.Time, filtered, baseline, active ? candidate : (threshold + 3) / 4 * 4,
-                active ? candidate - 4 : GuidedCalibrationAlgorithm.HardwareReleaseThreshold(threshold) * 4,
-                (frame.Bits & (1UL << SelectedKeyIndex)) != 0, valid, connect)
-            {
-                HardwareTouched = (frame.HardwareBits & (1UL << SelectedKeyIndex)) != 0,
-                CandidateThreshold = candidate, CompensationActive = active
-            });
-            previous = frame;
-            previousValid = valid;
+            var point = ToPoint(frame, previous);
+            if (previousMapping != frame.Mapping[SelectedKeyIndex]) point = point with { Connect = false };
+            result.Add(point);
+            previous = point;
+            previousMapping = frame.Mapping[SelectedKeyIndex];
         }
-        return result;
+        return cachedPoints = result.AsReadOnly();
+    }
+
+    private SignalChartPoint ToPoint(Frame frame, SignalChartPoint? previous)
+    {
+        var channel = KeyMapping.ChannelIndexOf(frame.Mapping[SelectedKeyIndex]);
+        var filtered = frame.Filtered[channel];
+        var baseline = frame.Baseline[channel];
+        var valid = filtered is > 0 and <= 1023 && baseline is > 0 and <= 1023 && (frame.Status[channel / 12] & 15) == 7;
+        var threshold = frame.Thresholds[SelectedKeyIndex];
+        var candidate = frame.Candidates[SelectedKeyIndex] * 4;
+        var active = (frame.ActiveBits & (1UL << SelectedKeyIndex)) != 0;
+        return new(frame.Time, filtered, baseline, active ? candidate : (threshold + 3) / 4 * 4,
+            active ? candidate - 4 : GuidedCalibrationAlgorithm.HardwareReleaseThreshold(threshold) * 4,
+            (frame.Bits & (1UL << SelectedKeyIndex)) != 0, valid,
+            previous is { Valid: true } && valid && frame.Time - previous.TimeMs <= 250)
+        {
+            HardwareTouched = (frame.HardwareBits & (1UL << SelectedKeyIndex)) != 0,
+            CandidateThreshold = candidate, CompensationActive = active
+        };
     }
 
     public void Clear()
     {
         frames.Clear();
+        latest = null;
         hasTimestamp = false;
         time = 0;
         Changed();
     }
     public void RaiseLocalized() => Changed();
-    private void Changed() { revision++; OnPropertyChanged(nameof(Revision)); OnPropertyChanged(nameof(CurrentValues)); }
+    private void Changed() { cachedPoints = null; revision++; OnPropertyChanged(nameof(Revision)); OnPropertyChanged(nameof(CurrentValues)); }
 }

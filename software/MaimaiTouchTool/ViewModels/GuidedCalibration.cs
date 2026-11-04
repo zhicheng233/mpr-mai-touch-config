@@ -370,7 +370,7 @@ public sealed class GuidedKeyPreview : NotifyModel
     {
         Outcome = outcome;
         if (outcome.Status != GuidedKeyStatus.Measured) adopt = false;
-        Localizer.Instance.LanguageChanged += (_, _) => { OnPropertyChanged(nameof(Detail)); OnPropertyChanged(nameof(SafetyDetail)); OnPropertyChanged(nameof(StatusLabel)); };
+        Localizer.Instance.LanguageChanged += (_, _) => { OnPropertyChanged(nameof(Detail)); OnPropertyChanged(nameof(SafetyDetail)); OnPropertyChanged(nameof(StatusLabel)); OnPropertyChanged(nameof(ThresholdLabel)); };
     }
     public GuidedKeyOutcome Outcome { get; }
     public bool Adopt
@@ -379,6 +379,8 @@ public sealed class GuidedKeyPreview : NotifyModel
         set { adopt = value; OnPropertyChanged(); }
     }
     public string Label => Outcome.Label;
+    public string ThresholdLabel => Outcome.Status == GuidedKeyStatus.Measured
+        ? string.Format(Localizer.Instance["Guided.KeyThreshold"], Outcome.KeyThreshold) : "—";
     public string DepthLabel => Outcome.PressDepth > 0 ? $"{Outcome.PressDepth:0} / {Outcome.NoiseSpan:0}" : "—";
     public string Detail => string.Format(Localizer.Instance["Guided.KeyDetail"], Outcome.OldOffset, Outcome.NewOffset, Outcome.KeyThreshold)
         + " · " + string.Format(Localizer.Instance["Guided.SafeRange"], Outcome.SafeLower, Outcome.SafeUpper, Outcome.SampleCount)
