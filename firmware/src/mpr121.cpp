@@ -15,6 +15,8 @@ bool writeRegister(uint8_t address, uint8_t reg, uint8_t value) {
 }
 
 // 批量读 count 个连续寄存器（MPR121 支持地址自动递增）。
+// 注意：总线刻意保持 100 kHz。实测 400 kHz 在走线最长的一块板卡上读寄存器 100% 失败
+//（0.3.0 的 100 kHz 从未出现），为保全板可用不上提速，勿改回 400k。
 bool readRegisters(uint8_t address, uint8_t reg, uint8_t* buffer, uint8_t count) {
   Wire.beginTransmission(address);
   Wire.write(reg);
@@ -47,9 +49,10 @@ bool Mpr121Hardware::begin() {
     }
   }
   // 必须在 Adafruit begin() 之后设置：Adafruit_I2CDevice::begin() 内部调用 Wire.begin()，
-  // 会重新初始化 SERCOM 并把波特率打回默认 100 kHz——setClock 放在它之前会被静默覆盖，
-  // 表现为 filtered 快照耗时 ~9ms（100kHz）而非 ~2.5ms（400kHz），拖低全部遥测档位回报率。
-  Wire.setClock(400000UL);
+  // 总线速率保持 Adafruit begin() 设定的默认 100 kHz，不再提速。曾把 setClock(400kHz)
+  // 挪到 begin() 之后以提回报率（实测 touch+filtered 42→84 Hz），但真机验证发现走线最长
+  // 的一块板卡在 400k 下读寄存器 100% 失败（0.3.0 的 100k 从未出现），为保全板可用
+  // 已整体还原，详见 readRegisters 处注释。
   return allPresent;
 #else
   for (uint8_t board = 0; board < touchmap::BoardCount; ++board) {
