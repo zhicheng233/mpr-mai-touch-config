@@ -472,6 +472,13 @@ void handleFrame(const protocol::Frame& frame) {
   }
 }
 
+// 活动掩码流的通道判定（streamChannelMask == 0 表示全开）。掩码流之外没有意义，
+// 所以调用方必须自己确认当前确实在掩码流里（见 sampleCompensation）。
+bool streamChannelEnabled(uint8_t board, uint8_t channel) {
+  if (streamChannelMask == 0) return true;
+  return ((streamChannelMask >> (12u * board + channel)) & 1ULL) != 0;
+}
+
 void sampleCompensation() {
 #ifdef ARDUINO
   if (conditioning || applied.compensationMode == 0) return;
@@ -480,9 +487,14 @@ void sampleCompensation() {
     const uint8_t key = compensationCursor;
     compensationCursor = (compensationCursor + 1) % touchmap::KeyCount;
     if (!config::compensationSelected(applied, key) || currentTime - compensationSamples[key] < 8) continue;
-    compensationSamples[key] = currentTime;
     const uint8_t board = touchmap::UnpackBoard(applied.keyMap[key]);
     const uint8_t channel = touchmap::UnpackChannel(applied.keyMap[key]);
+    // 掩码流中被排除的通道按协议不采样，补偿也不该绕过掩码去读它的 I2C 寄存器，
+    // 否则「裁剪采样以缩短帧周期」的收益会被这里每 loop 一次的 readSignal 抵消。
+    // 只在掩码流进行中生效：GAME 模式下残留的掩码不能影响补偿学习。
+    if (streamMasked && mode == FirmwareMode::STREAMING && !streamChannelEnabled(board, channel))
+      continue;
+    compensationSamples[key] = currentTime;
     uint16_t filtered = 0, baseline = 0;
     uint16_t hardwareBits = 0;
     const bool valid = mpr.readSignal(board, channel, &filtered, &baseline) && mpr.readTouchStatus(board, &hardwareBits);
@@ -524,8 +536,8 @@ void sendDebugFrame(uint32_t nowMs) {
     const uint64_t boardBits = streamChannelMask >> (12u * board);
     boardEnabled[board] = (boardBits & 0xFFFULL) != 0;
   }
-  const auto channelEnabled = [&](uint8_t board, uint8_t channel) {
-    return streamChannelMask == 0 || (streamChannelMask >> (12u * board + channel)) & 1ULL;
+  const auto channelEnabled = [](uint8_t board, uint8_t channel) {
+    return streamChannelEnabled(board, channel);  // 与 sampleCompensation 共用，避免两处判定漂移
   };
 
   // 只有真采到硬件触摸位时才允许更新 touchState：extended 段的 hw_touch 与 touch 字段同源，

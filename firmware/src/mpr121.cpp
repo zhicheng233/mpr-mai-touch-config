@@ -346,12 +346,17 @@ void Mpr121Hardware::snapshotPartial(uint16_t filteredValues[touchmap::ChannelCo
                                      bool wantFiltered, bool wantBaseline,
                                      const bool* boardEnabled) {
   for (uint8_t board = 0; board < touchmap::BoardCount; ++board) {
+    // bit3 语义是「自上一帧以来发生过 I2C 错误」（PROTOCOL.md §5），所以错误位必须在报告它的
+    // 那一帧里消费掉。下面三处都遵循「pending 与本帧新错误合并上报，再统一清零」。
+    const bool pendingError = i2cErrorSinceSnapshot_[board];
     status[board] = static_cast<uint8_t>((online_[board] ? 1 : 0) |
-                                         (initialized_[board] ? 2 : 0) |
-                                         (i2cErrorSinceSnapshot_[board] ? 8 : 0));
+                                         (initialized_[board] ? 2 : 0));
     const bool boardActive = boardEnabled != nullptr && board < touchmap::BoardCount && boardEnabled[board];
     if (!online_[board] || !boardActive || (!wantFiltered && !wantBaseline)) {
       // 整板被掩码 / 无字段需求：不发起任何 I2C 事务，数据置零，状态只报无需读寄存器的位。
+      // 之前攒下的错误位在这里报告一次并清掉，否则被跳过的板会让同一个错误位跨帧重复出现。
+      if (pendingError) status[board] |= 8;
+      i2cErrorSinceSnapshot_[board] = false;
       for (uint8_t channel = 0; channel < 12; ++channel) {
         const uint8_t index = static_cast<uint8_t>(board * 12 + channel);
         filteredValues[index] = 0;
@@ -380,16 +385,21 @@ void Mpr121Hardware::snapshotPartial(uint16_t filteredValues[touchmap::ChannelCo
                                         (static_cast<uint16_t>(filteredRaw[channel * 2 + 1]) << 8)
                                   : 0;
       baselineValues[index] = baselineOk ? static_cast<uint16_t>(baselineRaw[channel]) << 2 : 0;
-      if (baselineValues[index] != 0) status[board] |= 4;
     }
+    // 读取过程中新产生的错误必须和本帧开始前攒下的 pending 一起上报，否则刚 recordI2cError
+    // 置位就会被下面的清零吞掉，bit3 永远报不出来。
+    if (pendingError || i2cErrorSinceSnapshot_[board]) status[board] |= 8;
+    // bit2 = 基线确实读过，与基线值是否非零无关（基线为 0 但读取成功时仍应置位）。
+    if (wantBaseline && baselineOk) status[board] |= 4;
     i2cErrorSinceSnapshot_[board] = false;
 #else
     for (uint8_t channel = 0; channel < 12; ++channel) {
       const uint8_t index = static_cast<uint8_t>(board * 12 + channel);
       filteredValues[index] = wantFiltered ? hostFiltered_[index] : 0;
       baselineValues[index] = wantBaseline ? hostBaseline_[index] : 0;
-      if (baselineValues[index] != 0) status[board] |= 4;
     }
+    if (pendingError || i2cErrorSinceSnapshot_[board]) status[board] |= 8;
+    if (wantBaseline) status[board] |= 4;
     i2cErrorSinceSnapshot_[board] = false;
 #endif
   }

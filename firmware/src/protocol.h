@@ -6,7 +6,10 @@ namespace protocol {
 
 constexpr uint8_t Sync0 = 0xAA;
 constexpr uint8_t Sync1 = 0x55;
-constexpr uint8_t Version = 0x12;
+// 帧头第 2 字节 = major << 4 | minor，必须与 PROTOCOL.md 第 47 行、version.h 的
+// ProtocolMinor 保持一致（1.3 → 0x13）。校验方只比较高 4 位，所以写错次版本不会立刻报错，
+// 但会让「VERSION 应答说 1.3、帧头说 1.2」自相矛盾。
+constexpr uint8_t Version = 0x13;
 constexpr uint16_t MaxPayload = 256;
 constexpr uint16_t MaxFrameLength = 266;
 constexpr uint32_t FrameTimeoutMs = 250;
