@@ -2,7 +2,9 @@ namespace MaimaiTouchTool.Protocol;
 
 public static class ProtocolConstants
 {
-    public const byte Sync0 = 0xAA, Sync1 = 0x55, Version = 0x12;
+    // 帧头第 2 字节 = major << 4 | minor，与 PROTOCOL.md 第 47 行一致（1.3 → 0x13）。
+    // 收发双方都只比较高 4 位，所以这里是「按文档对齐」而非兼容性修复。
+    public const byte Sync0 = 0xAA, Sync1 = 0x55, Version = 0x13;
     public const int HeaderLength = 8, CrcLength = 2, MaxPayload = 256;
     public const int ConfigBlobLength = 99, LegacyConfigBlobLength = 93, DebugFrameLength = 207, ExtendedDebugFrameLength = 251, GameFrameLength = 9, LegacyCommandLength = 6;
     public const uint CapabilityCompensation = 0x20;
